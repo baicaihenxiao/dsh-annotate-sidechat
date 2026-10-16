@@ -915,9 +915,9 @@ window.__ModuleLoader__.load({
    (InputBar.module.css): same panel radius, input fill and elevation, the same
    content font size, and the same 34px round send button. */
 .dsh-note-composer {
-  /* Content-sized and pinned under the transcript the way the host composer sits
-     under the chat: the history keeps the room the composer does not need. */
-  flex: 0 0 auto; max-height: 45%; overflow: auto; box-sizing: border-box;
+  /* Twice the height the card had, pinned under the transcript the way the host
+     composer sits under the chat: the history keeps the room it does not need. */
+  flex: 0 0 auto; min-height: 172px; max-height: 45%; overflow: auto; box-sizing: border-box;
   display: flex; flex-direction: column;
   padding: 4px 8px 6px;
   font-size: var(--dsh-content-font-size, 14px);
@@ -951,9 +951,6 @@ window.__ModuleLoader__.load({
 .dsh-note-sendBtn:hover:not(:disabled) { background: var(--dsw-alias-button-info-hover); }
 .dsh-note-sendBtn:disabled { opacity: 0.4; cursor: default; }
 .dsh-note-toolNote { margin-left: auto; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
-/* The side panel's composer stands twice the host's one-line height, like this
-   page's own composer: a quote plus a reply needs the room. */
-[data-sidebar-right-session] [data-composer-input] { min-height: 72px; }
 .dsh-note-error { font-size: 12px; color: var(--dsw-alias-state-error-primary); }
 `;
 

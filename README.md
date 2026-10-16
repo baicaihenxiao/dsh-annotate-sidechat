@@ -46,9 +46,10 @@ send the located quote to the main chat or to a side chat**.
    its own content — a composer card that copies the host composer (`InputBar`):
    its panel radius, input fill and soft elevation, the conversation's font size
    and line height, and its primary fill for a labelled rectangular send button
-   (arrow glyph + text), right-aligned in the card. Both side-panel composers —
-   this one and the host composer a side chat gets once it exists — stand twice
-   the host's one-line height, so a quote plus a reply has room. The rows scroll inside the
+   (arrow glyph + text), right-aligned in the card. The card itself stands twice
+   its earlier height (172 px minimum, capped at 45% of the panel), so a quote
+   plus a reply has room; a side chat that already exists keeps the host composer
+   exactly as the host draws it. The rows scroll inside the
    transcript's own box, so the composer never covers the history. What the transcript shows is what the new chat
    is about to inherit — the completed turns of the chat **on screen**, captured
    once when the side chat is created (the reader is session-addressed, so a chat

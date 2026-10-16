@@ -274,11 +274,13 @@ assert.match(source, /\.dsh-note-composer\s*\{[^}]*border-radius:\s*var\(--dsw-r
 assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*background:\s*var\(--dsw-alias-button-info-fill\)/,
   'the send button uses the composer primary fill');
 assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*height:\s*32px/, 'and a composer-sized button');
-// Both side-chat composers stand twice the host's one-line height, and a long
-// quote scrolls them to its end.
-assert.match(source, /\.dsh-note-input\s*\{[^}]*min-height:\s*72px/, 'the panel composer is twice as tall');
-assert.match(source, /\[data-sidebar-right-session\] \[data-composer-input\]\s*\{[^}]*min-height:\s*72px/,
-  'and so is the host composer inside the side panel');
+// The new-chat composer card stands twice its old height (the textarea inside it
+// stretches), while a created side chat keeps the host composer as the host
+// draws it. A long quote scrolls either composer to its end.
+assert.match(source, /\.dsh-note-composer\s*\{[^}]*min-height:\s*172px/, 'the new-chat card is twice as tall');
+assert.match(source, /\.dsh-note-input\s*\{[^}]*min-height:\s*72px/, 'with a textarea that fills it');
+assert.ok(!source.includes('[data-sidebar-right-session] [data-composer-input]'),
+  'the created side chat keeps the host composer untouched');
 assert.ok(source.includes('function scrollComposerToEnd'), 'a composer keeps the end of a long quote in view');
 assert.ok(source.includes('node.scrollTop = node.scrollHeight'), 'the panel composer scrolls to its end');
 assert.ok(source.includes('M8.3125 0.980183C8.66767 1.0531'), 'with the composer arrow glyph');
