@@ -15,6 +15,12 @@ select an assistant reply  →  two options: Send to main chat / Send to side ch
                               └─ side chat: the quote goes to the open side chat, or a new one
 ```
 
+On the left, the main chat with the quote menu open on a selected word. On the
+right, side chat `sidechat-1`: its two inherited turns shown, the quote it was
+created with and the reply, and the next quote waiting in its composer.
+
+![The main chat with the quote menu open, and a side chat in the right sidebar](docs/sidechat.webp)
+
 > **Status: 1.0.0 — tested in a browser on DeepSeek Harness `0.2.0-rc.2`, and
 > checked headlessly (`node check.mjs`, including a replay of its slot
 > registrations against the host's real slot registry).** See [Checks](#checks).
