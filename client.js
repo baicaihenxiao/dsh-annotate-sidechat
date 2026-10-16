@@ -261,7 +261,7 @@ window.__ModuleLoader__.load({
       return at.length === 0 ? 'Quoted from ' + where + ':' : 'Quoted from ' + where + ' (' + at.join(', ') + '):';
     }
 
-    /** What both menu entries carry: the located quote, as a block quote. */
+    /** The located quote both menu entries carry, as a block quote. */
     function quoteText(snapshot) {
       const quoted = snapshot.text.split('\n').map((line) => '> ' + line).join('\n');
       return locationLine(snapshot) + '\n' + quoted;
@@ -270,6 +270,14 @@ window.__ModuleLoader__.load({
     /** `draft` + one blank line + `text`; `text` alone when the draft is empty. */
     function appendDraft(draft, text) {
       return typeof draft === 'string' && draft.trim() !== '' ? draft + '\n\n' + text : text;
+    }
+
+    /**
+     * The quote as it lands in a composer: `quoteText` plus one trailing
+     * newline, so the caret waits on a fresh line for the user's own words.
+     */
+    function draftQuote(snapshot) {
+      return quoteText(snapshot) + '\n';
     }
 
     // ── side chat ───────────────────────────────────────────────────────────
@@ -517,7 +525,7 @@ window.__ModuleLoader__.load({
       async function toMain(selection) {
         const parentId = currentSessionId(ctx);
         if (parentId === '') { store.set({ pending: selection, error: t('mainChat.failed') }); return; }
-        const landed = await writeDraft(ctx, parentId, quoteText(selection), 10);
+        const landed = await writeDraft(ctx, parentId, draftQuote(selection), 10);
         if (!landed) { store.set({ pending: selection, error: t('mainChat.failed') }); return; }
         clearSelection();
         store.set({ pending: null, error: '' });
@@ -527,9 +535,7 @@ window.__ModuleLoader__.load({
       function toSide(selection) {
         const parentId = currentSessionId(ctx);
         if (parentId === '') { store.set({ pending: selection, error: t('sideChat.empty') }); return; }
-        // One trailing newline, so the composer is ready for the user to type
-        // their own line right under the quote.
-        const text = quoteText(selection) + '\n';
+        const text = draftQuote(selection);
         const entry = chats.get(parentId);
         if (typeof entry.childId === 'string' && entry.childId !== '') {
           // The chat exists: the quote joins that conversation's composer draft.
@@ -710,6 +716,7 @@ window.__ModuleLoader__.load({
       __test: {
         locationLine: locationLine,
         quoteText: quoteText,
+        draftQuote: draftQuote,
         appendDraft: appendDraft,
         selectionText: selectionText,
         capture: capture,

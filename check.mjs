@@ -40,7 +40,7 @@ const plugin = loads[0].factory((name) => {
 });
 
 // ── the quote the two menu entries carry ────────────────────────────────────
-const { locationLine, quoteText, appendDraft } = plugin.__test;
+const { locationLine, quoteText, draftQuote, appendDraft } = plugin.__test;
 
 assert.equal(
   locationLine({ part: 'response', turn: 3, block: 'paragraph 2' }),
@@ -60,6 +60,11 @@ assert.ok(!long.includes('…'), 'a long selection is never elided');
 assert.equal(appendDraft('', 'q'), 'q', 'an empty draft takes the quote alone');
 assert.equal(appendDraft('   ', 'q'), 'q', 'a blank draft takes the quote alone');
 assert.equal(appendDraft('typed', 'q'), 'typed\n\nq', 'existing text keeps one blank line before the quote');
+
+// What lands in either composer: both menu entries share it, and it ends on a
+// fresh line so the caret waits for the user's own words.
+assert.equal(draftQuote({ text: 'x', turn: 2 }), quoteText({ text: 'x', turn: 2 }) + '\n');
+assert.ok(draftQuote({ text: 'x' }).endsWith('> x\n'), 'the composer draft ends with one newline');
 
 // ── registration ────────────────────────────────────────────────────────────
 const disposers = [];
