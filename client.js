@@ -469,6 +469,23 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The newest durable event seq this client has seen for one session, or
+     * undefined. Live chunks are skipped: only a real event seq is a valid fork
+     * boundary.
+     */
+    function latestSeq(ctx, sessionId) {
+      const entries = windowEntries(ctx, sessionId);
+      if (entries === undefined) return undefined;
+      let latest;
+      for (const entry of entries) {
+        if (entry.type !== 'event') continue;
+        const seq = entry.event.seq;
+        if (typeof seq === 'number' && (latest === undefined || seq > latest)) latest = seq;
+      }
+      return latest;
+    }
+
+    /**
      * The last turn a fresh fork inherited, or null when it cannot be told.
      *
      * The fork copies an inclusive prefix, so every seq the child shares with
@@ -601,7 +618,20 @@ window.__ModuleLoader__.load({
      * @returns the child session id.
      */
     async function createSideChat(ctx, parentId, text, index) {
-      const childId = await ctx.sessions.fork({ sessionId: parentId });
+      // Cut the fork at the newest event this client has seen, so a new side
+      // chat inherits the main chat's context as it stands right now — an
+      // answer still in flight included, not just the last completed turn. The
+      // host balances a cut taken inside an open turn.
+      const cut = latestSeq(ctx, parentId);
+      let childId;
+      try {
+        childId = await ctx.sessions.fork(cut === undefined ? { sessionId: parentId } : { sessionId: parentId, atSeq: cut });
+      } catch (error) {
+        // A boundary the host will not take (our window was stale) falls back
+        // to its own default: the latest completed turn.
+        if (cut === undefined) throw error;
+        childId = await ctx.sessions.fork({ sessionId: parentId });
+      }
       const reference = ctx.sessions.retain(childId, { source: 'sidebarChat' });
       let handedOver = false;
       try {
@@ -741,6 +771,18 @@ window.__ModuleLoader__.load({
 .dsh-note-tool-primary:hover {
   color: var(--dsw-alias-brand-primary);
   background: color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent);
+}
+.dsh-note-tool-warn {
+  /* Reset archives the current chat: a caution tone, plainly apart from the
+     brand-tinted New beside it. Without color-mix the text and border still
+     carry the tone, only the fill falls back to the plain layer. */
+  color: var(--dsw-alias-state-warn-primary);
+  border-color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, transparent);
+}
+.dsh-note-tool-warn:hover {
+  color: var(--dsw-alias-state-warn-primary);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 18%, transparent);
 }
 .dsh-note-tool-toggle { margin-left: auto; }
 .dsh-note-tool[data-active] { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
@@ -1062,7 +1104,7 @@ window.__ModuleLoader__.load({
       // same size and shape, different glyph, colour and tooltip.
       const tools = h('div', { className: 'dsh-note-tools' },
         h('button', {
-          className: 'dsh-note-tool', type: 'button',
+          className: 'dsh-note-tool dsh-note-tool-warn', type: 'button',
           title: t('sideChat.resetHint'),
           onClick: () => { void props.resetSideChat(id); },
         }, h('span', { className: 'dsh-note-toolGlyph' }, '↺'), t('sideChat.reset')),

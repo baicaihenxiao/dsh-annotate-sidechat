@@ -194,7 +194,7 @@ assert.deepEqual(toolButtons.map((button) => button.children[1]), ['sideChat.res
   'reset sits left of new');
 assert.deepEqual(toolButtons.map((button) => button.children[0].children[0]), ['↺', '＋'],
   'each button carries its own glyph');
-assert.equal(toolButtons[0].props.className, 'dsh-note-tool', 'reset stays the plain secondary button');
+assert.ok(toolButtons[0].props.className.includes('dsh-note-tool-warn'), 'reset carries the caution tone');
 assert.ok(toolButtons[1].props.className.includes('dsh-note-tool-primary'), 'new is the brand-tinted one');
 assert.ok(toolButtons[0].props.title !== toolButtons[1].props.title, 'the two buttons explain themselves differently');
 
@@ -227,6 +227,11 @@ assert.match(
   source,
   /\.dsh-note-btn-primary:hover\s*\{[^}]*background:\s*var\(--dsw-alias-brand-primary\)/,
   'the primary hover restates the brand fill',
+);
+assert.match(
+  source,
+  /\.dsh-note-tool-warn\s*\{[^}]*color:\s*var\(--dsw-alias-state-warn-primary\)/,
+  'the reset button is coloured with the warning tone',
 );
 assert.ok(!source.includes('filter: brightness'), 'the primary hover no longer washes toward white');
 
