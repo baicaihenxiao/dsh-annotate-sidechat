@@ -39,8 +39,10 @@ send the located quote to the main chat or to a side chat**.
    opened that way starts with an empty composer you simply type into *and looks
    like a side chat that has already been sent to*: the same toolbar (with the
    inherited-turn count where the sent panel shows its fold toggle), a scrolling
-   transcript of the main chat's own rows, and a composer card at the bottom
-   keeping one third of the room. What the transcript shows is what the new chat
+   transcript of the main chat's own rows, and — at the bottom, keeping one third
+   of the room — a composer card that copies the host composer (`InputBar`): its
+   panel radius, input fill and soft elevation, the conversation's font size and
+   line height, and its 34 px round send button with the same arrow glyph. What the transcript shows is what the new chat
    is about to inherit — the main chat's completed turns, captured **once, when
    the side chat is created**, and rendered in the main chat's own markup
    (markdown, code, layout) rather than as a flattened summary.

@@ -249,6 +249,20 @@ assert.match(source, /\.dsh-note-transcript\s*\{[^}]*overflow:\s*auto/, 'the tra
 assert.match(source, /\.dsh-note-composer\s*\{[^}]*flex:\s*1 1 0/, 'the composer takes one third');
 assert.match(source, /\.dsh-note-toolNote\s*\{/, 'the toolbar can carry the inherited count');
 
+// The composer copies the host composer's card and its send button.
+assert.match(source, /\.dsh-note-composer\s*\{[^}]*font-size:\s*var\(--dsh-content-font-size, 14px\)/,
+  'the composer uses the conversation font size');
+assert.match(source, /\.dsh-note-composer\s*\{[^}]*background:\s*var\(--dsw-specific-input-major/,
+  'and the composer card fill');
+assert.match(source, /\.dsh-note-composer\s*\{[^}]*border-radius:\s*var\(--dsw-radius-panel/,
+  'and the composer card radius');
+assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*background:\s*var\(--dsw-alias-button-info-fill\)/,
+  'the send button uses the composer primary fill');
+assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*width:\s*34px; height:\s*34px/,
+  'and the composer primary size');
+assert.ok(source.includes('M8.3125 0.980183C8.66767 1.0531'), 'with the composer arrow glyph');
+assert.ok(find(bareTree, (node) => node.type === 'svg') !== undefined, 'the panel renders the send icon');
+
 // The inherited prefix is folded by CSS alone, so it stays folded through
 // re-renders and copied/moved nodes.
 assert.match(

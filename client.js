@@ -856,26 +856,43 @@ window.__ModuleLoader__.load({
 .dsh-note-transcript > div { min-width: 0; }
 .dsh-note-transcript button, .dsh-note-transcript [role="button"] { display: none; }
 .dsh-note-empty { padding: 8px 0; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
+/* The composer card, its type and its send button copy the host composer
+   (InputBar.module.css): same panel radius, input fill and elevation, the same
+   content font size, and the same 34px round send button. */
 .dsh-note-composer {
   flex: 1 1 0; min-height: 64px; box-sizing: border-box;
-  display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
+  display: flex; flex-direction: column;
+  padding: 4px 8px 6px;
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+  color: var(--dsw-alias-label-primary);
   background: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-1));
-  border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-xl, 12px);
+  --dsw-elevation-stroke-color: var(--dsw-alias-border-l2);
+  box-shadow: var(--dsw-elevation-soft);
+  border: 0; border-radius: var(--dsw-radius-panel, 12px);
 }
-.dsh-note-composer:focus-within { border-color: var(--dsw-alias-border-l3); }
 .dsh-note-input {
-  flex: 1 1 auto; min-height: 40px; width: 100%; box-sizing: border-box;
-  display: block; resize: none; padding: 2px 0;
-  font: inherit; color: inherit; background: transparent; border: none;
+  flex: 1 1 auto; min-height: 36px; width: 100%; box-sizing: border-box;
+  display: block; resize: none; padding: 4px 8px 0 14px;
+  font-family: var(--dsw-font-family); font-size: inherit; line-height: inherit;
+  color: inherit; caret-color: var(--dsw-alias-state-business-primary);
+  background: transparent; border: none;
 }
+.dsh-note-input::placeholder { color: var(--dsw-alias-label-caption); }
 .dsh-note-input:focus { outline: none; }
-.dsh-note-composerRow { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.dsh-note-sendBtn {
-  padding: 3px 10px; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; border-radius: 6px;
-  color: #fff; background: var(--dsw-alias-brand-primary); border: 1px solid var(--dsw-alias-brand-primary);
+.dsh-note-composerRow {
+  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 2px 8px 6px; min-width: 0;
 }
-.dsh-note-sendBtn:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 88%, #000); }
-.dsh-note-sendBtn[disabled] { opacity: 0.5; cursor: default; }
+.dsh-note-sendBtn {
+  corner-shape: round;
+  display: grid; place-items: center; flex: none;
+  width: 34px; height: 34px; padding: 0; cursor: pointer;
+  color: #fff; background: var(--dsw-alias-button-info-fill);
+  border: none; border-radius: 999px;
+}
+.dsh-note-sendBtn:hover:not(:disabled) { background: var(--dsw-alias-button-info-hover); }
+.dsh-note-sendBtn:disabled { opacity: 0.4; cursor: default; }
 .dsh-note-toolNote { margin-left: auto; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
 .dsh-note-error { font-size: 12px; color: var(--dsw-alias-state-error-primary); }
 `;
@@ -1264,9 +1281,15 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dsh-note-composerRow' },
             h('button', {
               className: 'dsh-note-sendBtn', type: 'button',
+              title: t('sideChat.send'),
+              'aria-label': t('sideChat.send'),
               disabled: entry.busy || entry.draft.trim() === '',
               onClick: send,
-            }, t('sideChat.send')),
+            }, h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': true },
+              h('path', {
+                fill: 'currentColor',
+                d: 'M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z',
+              }))),
           ),
         ),
         entry.error === '' ? null : h('div', { className: 'dsh-note-error' }, entry.error),
