@@ -37,14 +37,12 @@ send the located quote to the main chat or to a side chat**.
 5. **A side chat needs no quote.** The page is also offered in the right
    sidebar's guide (the strip's add control / the empty column), and a side chat
    opened that way starts with an empty composer you simply type into.
-6. **The chat is created on send, not on click — with the main chat's newest
-   context.** Until a composer is sent, the page is a plain editable draft and
-   **no chat exists** in the session list. Sending forks the main chat
-   (`sessions.fork`, cut at the newest event the client has seen, so a fresh
-   side chat inherits the main chat as it stands right now — an answer still in
-   flight included; a boundary the host refuses falls back to its own default,
-   the latest completed turn), titles the child `sidechat-<n>-<main chat title>`,
-   and sends the draft as its first message.
+6. **The chat is created on send, not on click.** Until a composer is sent, the
+   page is a plain editable draft and **no chat exists** in the session list.
+   Sending forks the main chat (`sessions.fork` with no explicit boundary, so the
+   host cuts at the main chat's **last completed turn** — a turn still being
+   written is never inherited), titles the child
+   `sidechat-<n>-<main chat title>`, and sends the draft as its first message.
 7. **The inherited transcript is folded away.** A fork carries a copy of the main
    chat; everything in the panel *before this side chat's own first message* is
    collapsed and only shown when you ask for it. (When that message is not on the
@@ -113,8 +111,7 @@ client-only changes need no `dsh web` restart.
 | `[data-sidebar-right-*]` | Keeping sidebar selections out of the quote menu |
 | `ctx.sessions.fork` / `retain` / `binding.session` | Creating the child on send, renaming it, sending its first prompt |
 | `[data-chat-flow-key]` / `[data-chat-flow-kind="user"]` | Cutting the transcript at this side chat's own first message (the turn boundary from the event windows is the fallback) |
-| `ctx.sessions.fork({ atSeq })` | Cutting the fork at the main chat's newest event, so a new side chat always inherits the latest context |
-| `ctx.sessions.binding().eventSource` | The newest event seq to cut at, and which turns a fresh fork inherited (the child's window ∩ its parent's) |
+| `ctx.sessions.binding().eventSource` | Which turns a fresh fork inherited (the child's window ∩ its parent's), for folding them away |
 | `ctx.sessions.list` | Numbering side chats and reading the main chat's title |
 | `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` / `isExpanded` / `focus` | Opening a page per side chat (retried while the surface mounts), rewriting its params in place, finding the open one, and bringing it into view |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
@@ -146,9 +143,8 @@ two-item menu, a sidebar selection yielding none, a sidebar mousedown not being
 cancelled, `Send to main chat` appending after one blank line with a trailing
 newline and then focusing the composer, `Send to side chat` opening a page when
 none is up, sending that page forking once and titling the child
-`sidechat-1-Main chat title` at the main chat's newest event, a side chat created
-after the main chat moved on inheriting that newer context (with a refused
-boundary falling back to the host's default cut), the Reset and New buttons each
+`sidechat-1-Main chat title` with no explicit boundary (the host's last completed
+turn) — including after the main chat moved on, the Reset and New buttons each
 carrying their own colour class, the inherited items being marked and folded
 (both by position and by the turn fallback) with a working toggle, a further
 quote

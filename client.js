@@ -469,23 +469,6 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The newest durable event seq this client has seen for one session, or
-     * undefined. Live chunks are skipped: only a real event seq is a valid fork
-     * boundary.
-     */
-    function latestSeq(ctx, sessionId) {
-      const entries = windowEntries(ctx, sessionId);
-      if (entries === undefined) return undefined;
-      let latest;
-      for (const entry of entries) {
-        if (entry.type !== 'event') continue;
-        const seq = entry.event.seq;
-        if (typeof seq === 'number' && (latest === undefined || seq > latest)) latest = seq;
-      }
-      return latest;
-    }
-
-    /**
      * The last turn a fresh fork inherited, or null when it cannot be told.
      *
      * The fork copies an inclusive prefix, so every seq the child shares with
@@ -618,20 +601,9 @@ window.__ModuleLoader__.load({
      * @returns the child session id.
      */
     async function createSideChat(ctx, parentId, text, index) {
-      // Cut the fork at the newest event this client has seen, so a new side
-      // chat inherits the main chat's context as it stands right now — an
-      // answer still in flight included, not just the last completed turn. The
-      // host balances a cut taken inside an open turn.
-      const cut = latestSeq(ctx, parentId);
-      let childId;
-      try {
-        childId = await ctx.sessions.fork(cut === undefined ? { sessionId: parentId } : { sessionId: parentId, atSeq: cut });
-      } catch (error) {
-        // A boundary the host will not take (our window was stale) falls back
-        // to its own default: the latest completed turn.
-        if (cut === undefined) throw error;
-        childId = await ctx.sessions.fork({ sessionId: parentId });
-      }
+      // No explicit boundary: the host cuts at the main chat's last completed
+      // turn, so a side chat never inherits a turn that is still being written.
+      const childId = await ctx.sessions.fork({ sessionId: parentId });
       const reference = ctx.sessions.retain(childId, { source: 'sidebarChat' });
       let handedOver = false;
       try {
