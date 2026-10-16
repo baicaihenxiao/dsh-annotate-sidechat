@@ -143,6 +143,7 @@ const tree = body.component({
 });
 assert.equal(tree.props.className, 'dsh-note-panel', 'an uncreated side chat renders the pending panel');
 assert.equal(tree.children[2].props.value, 'Quoted from the assistant', 'the panel restores the quoted draft');
+assert.equal(typeof tree.children[2].props.ref, 'object', 'the pending composer is ref-wired for focus');
 
 // A page opened from the guide carries no params at all: the pane's session is
 // the parent, and the composer starts empty — the user just types into it.

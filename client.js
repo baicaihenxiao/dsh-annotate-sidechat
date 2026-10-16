@@ -286,11 +286,13 @@ window.__ModuleLoader__.load({
      * One side chat per parent session: its child (once the panel was sent),
      * the panel's draft while it is still pending, and its own busy/error state.
      * Entries are replaced on write, so every read is a stable snapshot.
+     * `focusToken` counts outside requests for the panel's composer focus, so a
+     * re-render that only echoes the user's own typing never moves the caret.
      */
     function createSideChats() {
       const entries = new Map();
       const listeners = new Set();
-      const EMPTY = { childId: null, draft: '', busy: false, error: '' };
+      const EMPTY = { childId: null, draft: '', busy: false, error: '', focusToken: 0 };
       return {
         subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
         get(parentId) {
@@ -521,13 +523,18 @@ window.__ModuleLoader__.load({
         try { window.getSelection().removeAllRanges(); } catch (error) { /* nothing selected */ }
       };
 
-      /** Send to main chat: append the quote to the current session's composer. */
+      /**
+       * Send to main chat: append the quote to the current session's composer,
+       * which `writeDraft` leaves focused with the caret at the end.
+       */
       async function toMain(selection) {
         const parentId = currentSessionId(ctx);
         if (parentId === '') { store.set({ pending: selection, error: t('mainChat.failed') }); return; }
+        // Order matters: dropping the quote highlight after the composer took
+        // focus would clear the DOM selection under the caret it just placed.
+        clearSelection();
         const landed = await writeDraft(ctx, parentId, draftQuote(selection), 10);
         if (!landed) { store.set({ pending: selection, error: t('mainChat.failed') }); return; }
-        clearSelection();
         store.set({ pending: null, error: '' });
       }
 
@@ -537,17 +544,25 @@ window.__ModuleLoader__.load({
         if (parentId === '') { store.set({ pending: selection, error: t('sideChat.empty') }); return; }
         const text = draftQuote(selection);
         const entry = chats.get(parentId);
-        if (typeof entry.childId === 'string' && entry.childId !== '') {
-          // The chat exists: the quote joins that conversation's composer draft.
+        const created = typeof entry.childId === 'string' && entry.childId !== '';
+        clearSelection();
+        if (created) {
+          // The chat exists: the quote joins that conversation's composer draft,
+          // and the composer takes the focus once the panel is up.
           void writeDraft(ctx, entry.childId, text, 10);
         } else {
-          chats.patch(parentId, { draft: appendDraft(entry.draft, text), error: '' });
+          // The pending panel owns this draft; the bumped token asks it to take
+          // the focus once it has re-rendered with the quote.
+          chats.patch(parentId, {
+            draft: appendDraft(entry.draft, text),
+            error: '',
+            focusToken: entry.focusToken + 1,
+          });
         }
         if (!revealSideChatTab(ctx, parentId, chats.get(parentId))) {
           store.set({ pending: selection, error: t('sideChat.empty') });
           return;
         }
-        clearSelection();
         store.set({ pending: null, error: '' });
       }
 
@@ -643,6 +658,7 @@ window.__ModuleLoader__.load({
       const cwd = typeof bag.cwd === 'string' ? bag.cwd : undefined;
       const [reference, setReference] = React.useState(null);
       const [failed, setFailed] = React.useState(false);
+      const composerRef = React.useRef(null);
 
       React.useEffect(() => {
         if (typeof childId !== 'string' || childId === '') { setReference(null); setFailed(false); return undefined; }
@@ -656,6 +672,17 @@ window.__ModuleLoader__.load({
         setReference(held);
         return () => { try { held.release(); } catch (error) { /* already released */ } };
       }, [childId]);
+
+      // The pending composer takes the keyboard when the panel appears and each
+      // time an outside action (the quote menu) puts text in it, with the caret
+      // after that text. Keyed on the token, so typing never moves the caret.
+      React.useEffect(() => {
+        const node = composerRef.current;
+        if (node === null || entry.busy) return;
+        node.focus({ preventScroll: true });
+        const end = node.value.length;
+        try { node.setSelectionRange(end, end); } catch (error) { /* not selectable */ }
+      }, [entry.focusToken, entry.busy]);
 
       if (typeof childId === 'string' && childId !== '') {
         if (failed) return h('div', { style: { padding: '16px' } }, t('sideChat.empty'));
@@ -675,6 +702,7 @@ window.__ModuleLoader__.load({
         h('div', { className: 'dsh-note-hint' }, t('sideChat.pendingHint')),
         h('textarea', {
           className: 'dsh-note-input',
+          ref: composerRef,
           value: entry.draft,
           disabled: entry.busy,
           placeholder: t('sideChat.pendingPlaceholder'),

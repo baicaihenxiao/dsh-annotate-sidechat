@@ -20,8 +20,11 @@ send it to the main chat or to a side chat**.
 2. **Send to main chat** appends the quote to the main composer draft: the text
    already there, one blank line, then the quote. `Send to side chat` puts the
    same quote in a side chat. Either destination ends the draft with a newline,
-   so the caret waits on a fresh line for your own words. (The primary menu entry
-   keeps its brand fill while hovered — it never flashes the light layer colour.)
+   so the caret waits on a fresh line for your own words, and either destination
+   takes the keyboard: the menu hands focus to the composer it just filled —
+   the main composer, the existing side chat's composer, or the pending side
+   chat's own composer. (The primary menu entry keeps its brand fill while
+   hovered — it never flashes the light layer colour.)
 3. **The quote is English-located** — which spot of the transcript is being
    quoted, then the passage as a block quote:
 
@@ -112,13 +115,15 @@ The DOM layer was additionally driven once through headless Chrome with a
 scratch harness (not committed — it needs a local Chrome plus `puppeteer-core`):
 selection in the main chat yields exactly the two options, a sidebar selection
 yields none, a sidebar mousedown is not cancelled, `Send to main chat` appends
-the quote after one blank line and a trailing newline, `Send to side chat`
-appends the same and forks nothing, sending the pending panel forks once, titles
-the child `sidechat-N`, and prompts it, and a guide-opened empty composer typed
-into forks the pane's session and creates `sidechat-1`. The real host's
-fork/rename/prompt RPCs and the live sidebar markers were read from the host
-sources, not exercised against a running GUI — a manual pass on the real page is
-still worth doing.
+the quote after one blank line and a trailing newline and then focuses the
+composer (in that order), `Send to side chat` appends the same, focuses the
+pending composer with the caret after the quote, and forks nothing, sending the
+pending panel forks once, titles the child `sidechat-N`, and prompts it, a quote
+for an already-created side chat refocuses that conversation's composer, and a
+guide-opened empty composer typed into forks the pane's session and creates
+`sidechat-1`. The real host's fork/rename/prompt RPCs and the live sidebar
+markers were read from the host sources, not exercised against a running GUI — a
+manual pass on the real page is still worth doing.
 
 ## License
 
