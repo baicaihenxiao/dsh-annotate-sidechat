@@ -254,7 +254,7 @@ Points worth knowing:
 | `[data-chat-turn]`, `[data-chat-group-part]` | The location line (turn number, reasoning vs. reply) |
 | `[data-conversation-session]` | Reading the session id when the list snapshot has no `current`, and picking the on-screen session's own transcript for the snapshot |
 | `[data-sidebar-right-*]` | Keeping sidebar selections out of the quote menu, except in a sent side chat's body (marked by the plugin with its child session) |
-| `ctx.sessions.fork` / `retain` / `binding.session` | Creating the child on send, renaming it, sending its first prompt |
+| `ctx.sessions.fork` / `retain` / `binding.session` | Creating the child on send, renaming it, sending its first prompt, and holding it for as long as its page is open — like the host's own sidebar chat, not only while the page is on screen, so opening the side chat in the main column and coming back never reopens it under the panel |
 | `[data-chat-flow-key]` / `[data-chat-flow-kind="user"]` | Cutting the transcript at this side chat's own first message (the turn boundary from the event windows is the fallback) |
 | `ctx.sessions.binding().eventSource` | Which turns a fresh fork inherited (the child's window ∩ its parent's), for folding them away |
 | `ctx.sessions.list` | Numbering side chats and reading the main chat's title |

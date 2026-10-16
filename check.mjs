@@ -320,6 +320,38 @@ assert.equal(typeof injected.newSideChat, 'function', 'the body can open another
 assert.equal(typeof injected.resetSideChat, 'function', 'the body can reset its side chat');
 assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane session');
 
+// ── a page holds its side chat until it closes, not while it is mounted ────
+// A body unmounts on every session switch. If the side chat's last reference
+// went with it while the user had that chat open in the main column, coming
+// back tore the generation down and reopened it under the panel, which stayed
+// blank until a reload — so the page holds it until the page itself goes.
+{
+  const chats = injected.chats;
+  const counts = { retained: 0, released: 0 };
+  const originalRetain = ctx.sessions.retain;
+  ctx.sessions.retain = () => {
+    counts.retained += 1;
+    return { ready: Promise.resolve(), binding: { session: {} }, release: () => { counts.released += 1; } };
+  };
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+  chats.ensure('note-held', { parentId: 'held-parent', index: 1, childId: 'child-held' });
+  chats.bindTab('tab-held', 'note-held');
+  assert.equal(chats.hold('child-held'), chats.hold('child-held'), 'every mount of the page shares one reference');
+  assert.equal(counts.retained, 1, 'retained once however often the body remounts');
+  chats.drop('child-held');
+  await tick();
+  assert.equal(counts.released, 0, 'a page that still shows the side chat keeps holding it');
+  chats.unbindTab('tab-held');
+  chats.drop('child-held');
+  await tick();
+  assert.equal(counts.released, 1, 'a closed page lets its side chat go');
+  chats.hold('child-held');
+  assert.equal(counts.retained, 2, 'a page that shows it again holds it again');
+  chats.dropAll();
+  assert.equal(counts.released, 2, 'unloading the plugin lets every side chat go');
+  ctx.sessions.retain = originalRetain;
+}
+
 // ── numbering counts the parent's side chats, sessions and pages alike ──────
 assert.equal(nextSideChatIndex(ctx, injected.chats, 'parent-1'), 3, 'two children in the list ⇒ next is 3');
 injected.chats.create('parent-1');

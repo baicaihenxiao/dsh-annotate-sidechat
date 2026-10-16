@@ -475,6 +475,7 @@ window.__ModuleLoader__.load({
       };
       const notify = () => { for (const fn of Array.from(listeners)) fn(); };
       const writing = new Map();
+      const held = new Map();
       /** Keep this page's record current; typing collapses into one write. */
       const remember = (id) => {
         if (idsByTab.get(id) === undefined) return;
@@ -553,6 +554,50 @@ window.__ModuleLoader__.load({
         },
         tabOfId(id) {
           return typeof id === 'string' ? idsByTab.get(id) : undefined;
+        },
+        /** A closed page no longer shows its side chat. */
+        unbindTab(tabId) {
+          const id = tabIds.get(tabId);
+          tabIds.delete(tabId);
+          if (id !== undefined && idsByTab.get(id) === tabId) idsByTab.delete(id);
+        },
+        /**
+         * The child's reference for as long as a page shows it, the way the host's
+         * own sidebar chat holds its child per tab record. A page body unmounts on
+         * every session switch; holding only while mounted let the main column
+         * drop the last reference when the user left the side chat open there,
+         * so coming back tore that generation down and reopened a new one under
+         * the panel in the same commit, and the panel stayed blank until reload.
+         */
+        hold(childId) {
+          let reference = held.get(childId);
+          if (reference === undefined) {
+            reference = ctx.sessions.retain(childId, { source: 'sidebarChat' });
+            held.set(childId, reference);
+          }
+          return reference;
+        },
+        /**
+         * Let a child go once no page shows it — on the next tick, so a panel
+         * still rendering it never reads a released binding, and a page that
+         * replaced itself in place has bound its new tab by then.
+         */
+        drop(childId) {
+          setTimeout(() => {
+            const reference = held.get(childId);
+            if (reference === undefined) return;
+            for (const entry of entries.values()) {
+              if (entry.childId === childId && idsByTab.has(entry.id)) return;
+            }
+            held.delete(childId);
+            try { reference.release(); } catch (error) { /* already released */ }
+          }, 0);
+        },
+        dropAll() {
+          for (const reference of held.values()) {
+            try { reference.release(); } catch (error) { /* already released */ }
+          }
+          held.clear();
         },
       };
       return store;
@@ -1014,6 +1059,7 @@ window.__ModuleLoader__.load({
         collapsed: true,
         focusToken: entry.focusToken + 1,
       });
+      if (entry.childId !== null) chats.drop(entry.childId);
       refreshSideChatPage(ctx, chats, id);
     }
 
@@ -1491,17 +1537,16 @@ window.__ModuleLoader__.load({
       const bodyRef = React.useRef(null);
       const rowsRef = React.useRef(null);
 
+      // The reference outlives this body: the page holds it until it closes or
+      // resets, so a session switch never drops the side chat's last one.
       React.useEffect(() => {
-        if (typeof childId !== 'string' || childId === '') { setReference(null); setFailed(false); return undefined; }
-        let held;
+        if (typeof childId !== 'string' || childId === '') { setReference(null); setFailed(false); return; }
         try {
-          held = props.sessions.retain(childId, { source: 'sidebarChat', signal: info.tab.signal });
+          setReference(props.chats.hold(childId));
+          setFailed(false);
         } catch (error) {
           setFailed(true);
-          return undefined;
         }
-        setReference(held);
-        return () => { try { held.release(); } catch (error) { /* already released */ } };
       }, [childId]);
 
       // The inherited history opens at its end, the way a sent chat's transcript
@@ -1733,6 +1778,7 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.locale.register(NS, { zh: zh, en: en }), 'dsh-annotate-sidechat: dictionaries');
         const t = ctx.locale.bind(NS);
         const chats = createSideChats(ctx);
+        ctx.effect(() => () => chats.dropAll(), 'dsh-annotate-sidechat: side chat references');
 
         // The overlay is inert until the conversation has mounted once, so a
         // cold page does not install listeners the host would never feed.
@@ -1790,7 +1836,8 @@ window.__ModuleLoader__.load({
               sideChatForTab: (tabId, parentId) => chats.forTab(tabId, parentId),
             }),
           }, SideChatTab));
-          // A closed page is remembered no longer; nothing would restore it.
+          // A closed page is remembered no longer, and lets its side chat go;
+          // nothing would restore it.
           const disposeClose = ctx.inject(['sidebarRight'], (scope) => {
             const sidebar = scope.get('sidebarRight');
             if (sidebar === undefined || sidebar === null || typeof sidebar.registerCloseHandler !== 'function') return;
@@ -1801,7 +1848,11 @@ window.__ModuleLoader__.load({
               try { sweepPages(inventory.getSnapshot()); } catch (error) { /* keep every record */ }
             }
             const dispose = sidebar.registerCloseHandler(TAB_KIND, (sessionId, tab) => {
-              forgetPage(tab === undefined || tab === null ? '' : tab.id);
+              const tabId = tab === undefined || tab === null ? '' : tab.id;
+              const entry = chats.get(chats.idOfTab(tabId));
+              chats.unbindTab(tabId);
+              if (entry.childId !== null) chats.drop(entry.childId);
+              forgetPage(tabId);
             });
             return () => { try { dispose(); } catch (error) { /* already released */ } };
           });

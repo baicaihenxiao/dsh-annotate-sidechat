@@ -194,7 +194,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 | `[data-chat-turn]`、`[data-chat-group-part]` | 位置说明（轮次编号、推理还是回复） |
 | `[data-conversation-session]` | 会话列表快照没有 `current` 时读取会话 id，并为快照挑出屏幕上那个会话自己的记录 |
 | `[data-sidebar-right-*]` | 把侧栏里的选区排除在引用菜单之外，已发送侧边对话的主体除外（插件给它标上了子对话 id） |
-| `ctx.sessions.fork` / `retain` / `binding.session` | 发送时创建子对话、重命名、发出第一条消息 |
+| `ctx.sessions.fork` / `retain` / `binding.session` | 发送时创建子对话、重命名、发出第一条消息，并在页面存在期间一直持有它 —— 与宿主自带的侧栏聊天一样，而不只是页面显示时，所以在主对话区打开该侧边对话再切回来，面板下的会话不会被重新打开 |
 | `[data-chat-flow-key]` / `[data-chat-flow-kind="user"]` | 在本侧边对话第一条消息处切开记录（事件窗口给出的轮次边界作为后备） |
 | `ctx.sessions.binding().eventSource` | 新 fork 继承了哪些轮次（子对话窗口 ∩ 父对话窗口），用于折叠 |
 | `ctx.sessions.list` | 给侧边对话编号，读取主对话标题 |
