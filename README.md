@@ -3,14 +3,16 @@
 A DeepSeek Harness (DSH) Web plugin: **select text in an assistant reply, then
 send the located quote to the main chat or to a side chat**.
 
-本插件参考 [dsh-sidenote](https://github.com/g-yixuan/dsh-sidenote)，是该插件的简化版和修改版
-(This plugin takes [dsh-sidenote](https://github.com/g-yixuan/dsh-sidenote) as a
-reference; it is a simplified and modified version of it).
+[中文说明](README.zh.md)
+
+This plugin takes [dsh-sidenote](https://github.com/g-yixuan/dsh-sidenote) as a
+reference; it is a simplified and modified version of it.
 
 ```
-划选 assistant 回复  →  两个选项：Send to main chat / Send to side chat
-                        ├─ 主对话：引用内容追加到输入框（空一行，末尾换行，光标到位）
-                        └─ 侧边对话：引用进入当前打开的 sidechat，没有就新建一个
+select an assistant reply  →  two options: Send to main chat / Send to side chat
+                              ├─ main chat: the quote is appended to the composer
+                              │  (one blank line before, a blank line after, caret in place)
+                              └─ side chat: the quote goes to the open side chat, or a new one
 ```
 
 > **Status: 0.1.0 — checked headlessly (`node check.mjs`, including a replay of
@@ -27,8 +29,9 @@ reference; it is a simplified and modified version of it).
    draft with a blank line and hands the composer the keyboard, so the caret
    waits on a fresh line with room to write. A quote that outgrows the box also
    scrolls it to the end, in the panel's own composer and in the host composer
-   alike (the host's focus takes `preventScroll`, so the plugin scrolls it). (The primary menu entry keeps its brand
-   fill while hovered — it never flashes the light layer colour.)
+   alike (the host's focus takes `preventScroll`, so the plugin scrolls it). (The
+   primary menu entry keeps its brand fill while hovered — it never flashes the
+   light layer colour.)
 3. **The quote is English-located** — which spot of the transcript is being
    quoted, then the passage as a block quote:
 
@@ -54,17 +57,18 @@ reference; it is a simplified and modified version of it).
    (arrow glyph + text), right-aligned in the card. The card itself stands twice
    its earlier height (172 px minimum, capped at 45% of the panel), so a quote
    plus a reply has room; a side chat that already exists keeps the host composer
-   exactly as the host draws it. The rows scroll inside the
-   transcript's own box, so the composer never covers the history. What the transcript shows is what the new chat
-   is about to inherit — the completed turns of the chat **on screen**, captured
-   once when the side chat is created (the reader is session-addressed, so a chat
-   switch cannot hand a new side chat the previous project's history) and
-   rendered in the main chat's own markup (markdown, code, layout) rather than as
-   a flattened summary. That markup is made inert before it is shown again —
-   scripts, embeds, event handlers and `javascript:` links are dropped, and so
-   are the host's turn and anchor markers, which must stay unique to the live
-   transcript. The area opens at the end of that history, the way a sent
-   chat's transcript does, so the newest turns sit right above the composer.
+   exactly as the host draws it. The rows scroll inside the transcript's own box,
+   so the composer never covers the history. What the transcript shows is what
+   the new chat is about to inherit — the completed turns of the chat **on
+   screen**, captured once when the side chat is created (the reader is
+   session-addressed, so a chat switch cannot hand a new side chat the previous
+   project's history) and rendered in the main chat's own markup (markdown, code,
+   layout) rather than as a flattened summary. That markup is made inert before
+   it is shown again — scripts, embeds, event handlers and `javascript:` links
+   are dropped, and so are the host's turn and anchor markers, which must stay
+   unique to the live transcript. The area opens at the end of that history, the
+   way a sent chat's transcript does, so the newest turns sit right above the
+   composer.
 6. **The chat is created on send, not on click.** Until a composer is sent, the
    page is a plain editable draft and **no chat exists** in the session list.
    Sending forks the main chat (`sessions.fork` with no explicit boundary, so the
@@ -87,7 +91,7 @@ reference; it is a simplified and modified version of it).
    |---|---|
    | `↺ Reset` | Archives the current chat and returns this page to an empty composer; the next send forks a fresh chat. Carries the theme's caution tone (amber), with a tooltip |
    | `＋ New` | Opens another side-chat page for the same main chat (several can be open at once). Brand-tinted, so the additive action reads apart from the cautionary one at a glance |
-   | `▸/▾ 继承自主对话 N 轮` | Shows or hides the fork's inherited turns; pinned to the right, tooltip names the action |
+   | `▸/▾ N turns inherited from the main chat` | Shows or hides the fork's inherited turns; pinned to the right, tooltip names the action |
 
    Either action also *reveals* the page it targets: a collapsed column expands
    and the page is focused, so sending a quote is never invisible. When the
@@ -112,30 +116,104 @@ params while it lives, and the plugin also keeps a small per-tab record in
 `localStorage` (`dsh-annotate-sidechat:page:<tabId>`, dropped when the tab
 closes, and on load when no saved layout holds that tab any more — never by
 age, so a side chat in a chat left alone for weeks still knows itself): the
-sidebar persists its layouts but not those
-params, so without it a reload would turn every side chat back into an empty new
-one. On mount a page takes its identity from its params, else from that record,
-else mints a fresh side chat (the guide-opened case).
+sidebar persists its layouts but not those params, so without it a reload would
+turn every side chat back into an empty new one. On mount a page takes its
+identity from its params, else from that record, else mints a fresh side chat
+(the guide-opened case).
 
 ## Install
 
-This is a **profile bundle**: installing it affects every session in the
-profile. Nothing is published to npm — install it from this repository.
+This is a **profile bundle**: installing it affects every session in the profile
+you install it into. Nothing is published to npm — install it from this
+repository.
 
-Ask your DSH agent:
-
-```
-install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
-```
-
-or, from a git URL:
+Ask your DSH agent to install it:
 
 ```
 install the DSH bundle github:baicaihenxiao/dsh-annotate-sidechat
 ```
 
-The agent runs `plugin_manager` `install_bundle`. Then reload the Web page;
+The agent runs the `plugin_manager` `install_bundle` action, which adds the
+package to your profile and selects the bundle. Then reload the Web page;
 client-only changes need no `dsh web` restart.
+
+From a checkout instead:
+
+```sh
+git clone https://github.com/baicaihenxiao/dsh-annotate-sidechat
+```
+
+```
+install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
+```
+
+To remove it again, ask the agent to remove the bundle `dsh-annotate-sidechat`,
+or disable it on DSH's Plugins page.
+
+- Plugin `0.1.0` targets DeepSeek Harness `0.2.0-rc.2`. That version is what
+  `peerDependencies` pins, so DSH refuses to install or activate this bundle on a
+  host it has not been checked against — see [Requirements](#requirements) for
+  the exact packages.
+
+## Updating
+
+Installing from GitHub pins the commit resolved at install time in your
+profile's `pnpm-lock.yaml`, so **a new commit upstream does not arrive by
+itself**. How you update depends on how you installed it:
+
+| Installed as | Update with |
+|---|---|
+| `github:baicaihenxiao/dsh-annotate-sidechat` | `dsh plugin --profile <profile> update dsh-annotate-sidechat`, or remove the bundle and install it again |
+| a local checkout | `git pull` in the checkout — the profile links the directory |
+| a tag or commit | install the revision you want: `github:baicaihenxiao/dsh-annotate-sidechat#v0.1.0` |
+
+Points worth knowing:
+
+- Re-running the install with the **same** spec keeps the pinned commit;
+  `pnpm update` is what re-resolves it to the branch head.
+- `plugin_manager`'s `install_bundle` both installs the package and selects the
+  bundle. The `dsh plugin` CLI path only installs the package, so re-select the
+  bundle afterwards if you use it.
+- Reload the Web page (or restart `dsh web`) after updating.
+- Pin a release by tag — `#v0.1.0`. A branch name works too. A commit SHA must
+  be the full 40 characters: pnpm cannot resolve an abbreviated one.
+- To see what you have installed, read the version in your profile:
+
+  ```sh
+  cat ~/.dsh/profiles/<profile>/node_modules/dsh-annotate-sidechat/package.json
+  ```
+
+## Requirements
+
+| Plugin | DeepSeek Harness | Node |
+|---|---|---|
+| `0.1.0` | `0.2.0-rc.2` | `^22.19.0 \|\| >=24.0.0` |
+
+- A DSH Web profile. Everything the bundle builds on ships with DSH: the right
+  sidebar's page registry and `sidebar.right.pane.tab` seat
+  (`@deepseek-ai/dsh-client-ui-sidebar-right`), the `conversation.content`
+  factory and the composer input machine
+  (`@deepseek-ai/dsh-client-ui-conversation`), session archiving
+  (`@deepseek-ai/dsh-client-ui-workspace`) and the locale registry
+  (`@deepseek-ai/dsh-client-locale`) — so the bundle declares no dependencies of
+  its own.
+- A DSH version this bundle was checked against. `peerDependencies` pins those
+  four host packages to `0.2.0-rc.2`, and `engines` matches the host's Node range
+  (`^22.19.0 || >=24.0.0`). DSH's plugin manager evaluates every
+  `@deepseek-ai/dsh*` peer range **against the DSH runtime version** and rejects
+  installation or activation when one does not match (an `incompatible-version`
+  refusal), so an untested host fails loudly instead of rendering a broken side
+  chat. The plugin leans on internal seams (see
+  [How it fits the host](#how-it-fits-the-host)), which is why the pin is exact.
+  A newer host version is added here once it has been checked; anyone who needs
+  to run ahead of that can grant an exact-version exemption, which accepts the
+  risk explicitly:
+
+  ```sh
+  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@0.1.0 --dsh-version <runtime> --accept-risk
+  ```
+- The browser module table provides `react` and `react-dom/client`; this bundle
+  imports nothing else.
 
 ## Files
 
@@ -163,7 +241,7 @@ client-only changes need no `dsh web` restart.
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
 | `annotateSidechat.conversation` (own child slot) + `conversation.content` factory | Rendering the shipped conversation inside the panel |
 | `ctx.sidebarRight.openTabs` | Dropping the per-tab records of pages no saved layout holds |
-| `ctx.get('uiWorkspace').archiveSession` | `Reset side chat` archiving the chat it replaces |
+| `ctx.get('uiWorkspace').archiveSession` | `Reset side chat` archiving the chat it replaces, and a failed send archiving its fork |
 | `ctx.conversation.input.for(scope).setDraft` / `focus` | Writing the quote into a composer and handing it the keyboard |
 
 These are internal seams, not a public contract: if the host renames one, the
@@ -172,7 +250,7 @@ crashing the page.
 
 ## Checks
 
-```
+```sh
 node check.mjs
 ```
 
@@ -198,28 +276,29 @@ harness (not committed — it needs a local Chrome plus `puppeteer-core`): the
 two-item menu, a sidebar selection yielding none, a sidebar mousedown not being
 cancelled, `Send to main chat` appending after one blank line plus a blank line
 under the quote, focusing the composer and scrolling a composer the quote
-outgrows to its end, the new-chat panel carrying the same
-toolbar as a sent one, its composer card sized to its content under a
-transcript that scrolls inside itself and is the main chat's own markup, its
-send button a rectangle pinned right, counting only the completed turns
-(`继承自主对话 N 轮`, the turn still being written excluded), that snapshot then
-holding still while the main chat grows (with a later side chat capturing the
-newer state instead), `Send to side chat` opening a page when
-none is up, sending that page forking once and titling the child
+outgrows to its end, the new-chat panel carrying the same toolbar as a sent one,
+its composer card sized to its content under a transcript that scrolls inside
+itself and is the main chat's own markup, its send button a rectangle pinned
+right, counting only the completed turns (the turn still being written
+excluded), that snapshot then holding still while the main chat grows (with a
+later side chat capturing the newer state instead), `Send to side chat` opening
+a page when none is up, sending that page forking once and titling the child
 `sidechat-1-Main chat title` with no explicit boundary (the host's last completed
 turn) — including after the main chat moved on, the Reset and New buttons each
 carrying their own colour class, the inherited items being marked and folded
 (both by position and by the turn fallback) with a working toggle, a further
-quote
-routing into the open side chat's composer instead of opening another page and
-revealing it (expand + focus), `Reset side chat` archiving the child and
+quote routing into the open side chat's composer instead of opening another page
+and revealing it (expand + focus), `Reset side chat` archiving the child and
 returning the page to a focused empty composer, `New side chat` opening a second
 page with its own id and number, an open refused once being retried to exactly
-one page, and a sidebar that never mounts surfacing an error in the menu. The
-real host's fork/rename/prompt and archive RPCs and the live sidebar markers
-were read from the host sources, not exercised against a running GUI — a manual
-pass on the real page is still worth doing.
+one page, and a sidebar that never mounts surfacing an error in the menu. That
+harness did not reproduce the real host's timing everywhere: the fold marking
+used to run before the conversation body had mounted, which would keep the
+toggle from ever appearing on the real page (fixed since). The real host's
+fork/rename/prompt and archive RPCs and the live sidebar markers were read from
+the host sources, not exercised against a running GUI — a manual pass on the
+real page is still worth doing.
 
 ## License
 
-MIT
+[MIT](LICENSE)
