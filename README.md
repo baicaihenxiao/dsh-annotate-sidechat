@@ -19,8 +19,10 @@ send the located quote to the main chat or to a side chat**.
    control or code-block chrome, is treated as quotable.
 2. **Send to main chat** appends the quote to the main composer draft: the text
    already there, one blank line, then the quote. Either destination ends the
-   draft with a newline and hands the composer the keyboard, so the caret waits
-   on a fresh line for your own words. (The primary menu entry keeps its brand
+   draft with a blank line and hands the composer the keyboard, so the caret
+   waits on a fresh line with room to write. A quote that outgrows the box also
+   scrolls it to the end, in the panel's own composer and in the host composer
+   alike (the host's focus takes `preventScroll`, so the plugin scrolls it). (The primary menu entry keeps its brand
    fill while hovered — it never flashes the light layer colour.)
 3. **The quote is English-located** — which spot of the transcript is being
    quoted, then the passage as a block quote:
@@ -29,6 +31,7 @@ send the located quote to the main chat or to a side chat**.
    Quoted from the assistant's reply (turn 3, paragraph 2):
    > the selected passage
    > continues here
+   <a blank line stays under the quote, for your own words>
    ```
 4. **Send to side chat** goes to the side chat the right sidebar is showing. With
    none open it opens a new page; with several open, the one you are looking at
@@ -43,7 +46,9 @@ send the located quote to the main chat or to a side chat**.
    its own content — a composer card that copies the host composer (`InputBar`):
    its panel radius, input fill and soft elevation, the conversation's font size
    and line height, and its primary fill for a labelled rectangular send button
-   (arrow glyph + text), right-aligned in the card. The rows scroll inside the
+   (arrow glyph + text), right-aligned in the card. Both side-panel composers —
+   this one and the host composer a side chat gets once it exists — stand twice
+   the host's one-line height, so a quote plus a reply has room. The rows scroll inside the
    transcript's own box, so the composer never covers the history. What the transcript shows is what the new chat
    is about to inherit — the completed turns of the chat **on screen**, captured
    once when the side chat is created (the reader is session-addressed, so a chat
@@ -154,8 +159,9 @@ fill, and the inherited-prefix collapse rule.
 The DOM layer was additionally driven through headless Chrome with a scratch
 harness (not committed — it needs a local Chrome plus `puppeteer-core`): the
 two-item menu, a sidebar selection yielding none, a sidebar mousedown not being
-cancelled, `Send to main chat` appending after one blank line with a trailing
-newline and then focusing the composer, the new-chat panel carrying the same
+cancelled, `Send to main chat` appending after one blank line plus a blank line
+under the quote, focusing the composer and scrolling a composer the quote
+outgrows to its end, the new-chat panel carrying the same
 toolbar as a sent one, its composer card sized to its content under a
 transcript that scrolls inside itself and is the main chat's own markup, its
 send button a rectangle pinned right, counting only the completed turns

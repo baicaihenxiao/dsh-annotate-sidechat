@@ -190,6 +190,7 @@ window.__ModuleLoader__.load({
               const draft = input.state.getSnapshot().draft;
               input.setDraft(appendDraft(draft, text));
               if (typeof input.focus === 'function') input.focus();
+              scrollComposerToEnd(sessionId);
               resolve(true);
               return;
             } catch (error) { /* the shell can vanish between reads — retry */ }
@@ -337,11 +338,11 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The quote as it lands in a composer: `quoteText` plus one trailing
-     * newline, so the caret waits on a fresh line for the user's own words.
+     * The quote as it lands in a composer: `quoteText` plus a blank line, so the
+     * caret waits on a fresh line with room to write under the quote.
      */
     function draftQuote(snapshot) {
-      return quoteText(snapshot) + '\n';
+      return quoteText(snapshot) + '\n\n';
     }
 
     // ── side chats ──────────────────────────────────────────────────────────
@@ -469,6 +470,43 @@ window.__ModuleLoader__.load({
       }
       for (const entry of chats.of(parentId)) if (entry.index > highest) highest = entry.index;
       return highest + 1;
+    }
+
+    /** The conversation root drawn for one session: the main column's first, else the panel's. */
+    function conversationRootOf(sessionId) {
+      let panel = null;
+      try {
+        for (const root of document.querySelectorAll(CONVERSATION)) {
+          const owner = typeof root.dataset.conversationSession === 'string' ? root.dataset.conversationSession : '';
+          if (sessionId !== undefined && sessionId !== '' && owner !== sessionId) continue;
+          if (root.closest(SIDEBAR) === null) return root;
+          if (panel === null) panel = root;
+        }
+      } catch (error) { /* nothing to read */ }
+      return panel;
+    }
+
+    /**
+     * Keep a composer's end in view: a long quote is written past the fold, and
+     * the host's own focus takes `preventScroll`, so the box would otherwise show
+     * its top. The scrollable ancestor is found by its computed overflow, since
+     * the host's class names are per-build hashes.
+     */
+    function scrollComposerToEnd(sessionId) {
+      const scroll = () => {
+        const root = conversationRootOf(sessionId);
+        const editor = root === null ? null : root.querySelector('[data-composer-input]');
+        if (editor === null) return;
+        editor.scrollTop = editor.scrollHeight;
+        for (let node = editor.parentElement; node !== null; node = node.parentElement) {
+          const style = window.getComputedStyle(node);
+          if (style.overflowY !== 'auto' && style.overflowY !== 'scroll') continue;
+          node.scrollTop = node.scrollHeight;
+          return;
+        }
+      };
+      scroll();
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(scroll);
     }
 
     /**
@@ -891,7 +929,7 @@ window.__ModuleLoader__.load({
   border: 0; border-radius: var(--dsw-radius-panel, 12px);
 }
 .dsh-note-input {
-  flex: 1 1 auto; min-height: 36px; width: 100%; box-sizing: border-box;
+  flex: 1 1 auto; min-height: 72px; width: 100%; box-sizing: border-box;
   display: block; resize: none; padding: 4px 8px 0 14px;
   font-family: var(--dsw-font-family); font-size: inherit; line-height: inherit;
   color: inherit; caret-color: var(--dsw-alias-state-business-primary);
@@ -913,6 +951,9 @@ window.__ModuleLoader__.load({
 .dsh-note-sendBtn:hover:not(:disabled) { background: var(--dsw-alias-button-info-hover); }
 .dsh-note-sendBtn:disabled { opacity: 0.4; cursor: default; }
 .dsh-note-toolNote { margin-left: auto; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+/* The side panel's composer stands twice the host's one-line height, like this
+   page's own composer: a quote plus a reply needs the room. */
+[data-sidebar-right-session] [data-composer-input] { min-height: 72px; }
 .dsh-note-error { font-size: 12px; color: var(--dsw-alias-state-error-primary); }
 `;
 
@@ -1186,6 +1227,8 @@ window.__ModuleLoader__.load({
         node.focus({ preventScroll: true });
         const end = node.value.length;
         try { node.setSelectionRange(end, end); } catch (error) { /* not selectable */ }
+        // A long quote reaches past the fold; show its end, where the caret is.
+        node.scrollTop = node.scrollHeight;
       }, [entry.focusToken, entry.busy]);
 
       // Mark the fork's inherited flow items, and keep marking them as older

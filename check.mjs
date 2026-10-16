@@ -78,8 +78,8 @@ assert.equal(appendDraft('typed', 'q'), 'typed\n\nq', 'existing text keeps one b
 
 // What lands in either composer: both menu entries share it, and it ends on a
 // fresh line so the caret waits for the user's own words.
-assert.equal(draftQuote({ text: 'x', turn: 2 }), quoteText({ text: 'x', turn: 2 }) + '\n');
-assert.ok(draftQuote({ text: 'x' }).endsWith('> x\n'), 'the composer draft ends with one newline');
+assert.equal(draftQuote({ text: 'x', turn: 2 }), quoteText({ text: 'x', turn: 2 }) + '\n\n');
+assert.ok(draftQuote({ text: 'x' }).endsWith('> x\n\n'), 'the composer draft ends with a blank line');
 
 // ── naming: sidechat-<n>-<main chat title> ─────────────────────────────────
 assert.equal(sideChatTitle(1, 'Fix the login timeout', '/tmp/repo'), 'sidechat-1-Fix the login timeout');
@@ -274,6 +274,13 @@ assert.match(source, /\.dsh-note-composer\s*\{[^}]*border-radius:\s*var\(--dsw-r
 assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*background:\s*var\(--dsw-alias-button-info-fill\)/,
   'the send button uses the composer primary fill');
 assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*height:\s*32px/, 'and a composer-sized button');
+// Both side-chat composers stand twice the host's one-line height, and a long
+// quote scrolls them to its end.
+assert.match(source, /\.dsh-note-input\s*\{[^}]*min-height:\s*72px/, 'the panel composer is twice as tall');
+assert.match(source, /\[data-sidebar-right-session\] \[data-composer-input\]\s*\{[^}]*min-height:\s*72px/,
+  'and so is the host composer inside the side panel');
+assert.ok(source.includes('function scrollComposerToEnd'), 'a composer keeps the end of a long quote in view');
+assert.ok(source.includes('node.scrollTop = node.scrollHeight'), 'the panel composer scrolls to its end');
 assert.ok(source.includes('M8.3125 0.980183C8.66767 1.0531'), 'with the composer arrow glyph');
 assert.ok(find(bareTree, (node) => node.type === 'svg') !== undefined, 'the panel renders the send icon');
 
