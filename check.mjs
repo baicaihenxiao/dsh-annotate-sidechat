@@ -109,18 +109,24 @@ plugin.apply(ctx);
 assert.equal(registered.length, 1, 'one page type registered');
 assert.equal(registered[0].kind, 'annotate-sidechat-note');
 assert.equal(registered[0].multiple, false, 'one side chat per session pane');
+assert.equal(registered[0].guide.length, 1, 'the guide offers the page, so it opens without a quote');
+assert.equal(registered[0].guide[0].id, 'dsh-annotate-sidechat:note');
+assert.equal(typeof registered[0].guide[0].title(), 'string');
+assert.equal(typeof registered[0].guide[0].description(), 'string');
 
 const zhKeys = Object.keys(dictionaries.annotateSidechat.zh).sort();
 const enKeys = Object.keys(dictionaries.annotateSidechat.en).sort();
 assert.deepEqual(zhKeys, enKeys, 'zh/en dictionaries cover the same keys');
 assert.ok(zhKeys.includes('action.toMain') && zhKeys.includes('action.toSide'));
+assert.ok(zhKeys.includes('guide.description'), 'the guide entry has copy');
 
 const body = slots.find((entry) => entry.options.name === 'sidebar.right.pane.tab');
 assert.ok(body !== undefined, 'the pane tab body is registered');
 assert.equal(body.options.key, 'dsh-annotate-sidechat:note');
 
-const injected = body.options.inject();
+const injected = body.options.inject('parent-1');
 assert.equal(typeof injected.sendSideChat, 'function', 'the body can send the pending panel');
+assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane session');
 
 // A restored tab carries its draft in navigation params; the panel renders it.
 const tree = body.component({
@@ -133,11 +139,33 @@ const tree = body.component({
 assert.equal(tree.props.className, 'dsh-note-panel', 'an uncreated side chat renders the pending panel');
 assert.equal(tree.children[2].props.value, 'Quoted from the assistant', 'the panel restores the quoted draft');
 
+// A page opened from the guide carries no params at all: the pane's session is
+// the parent, and the composer starts empty — the user just types into it.
+const bare = slots.find((entry) => entry.options.name === 'sidebar.right.pane.tab');
+const bareTree = bare.component({
+  ...body.options.inject('pane-session'),
+  t: (key) => key,
+  useTabInfo: () => ({ tab: { navigation: {} } }),
+  renderSlot: () => null,
+  SessionProvider: () => null,
+});
+assert.equal(bareTree.props.className, 'dsh-note-panel', 'a guide-opened page shows the composer');
+assert.equal(bareTree.children[2].props.value, '', 'the guide-opened composer starts empty');
+assert.equal(bareTree.children[2].props.disabled, false, 'the empty composer is typable');
+
 for (const dispose of disposers.reverse()) dispose();
 
 // The bug this version fixes: the panel body is no longer our own DOM, and the
 // sidebar exclusion uses the host's real markers.
 assert.ok(source.includes('[data-sidebar-right-session]'), 'sidebar exclusion uses the host marker');
 assert.ok(!source.includes('[data-sidebar-right],'), 'the bogus un-suffixed sidebar selector is gone');
+
+// Hovering the primary menu entry must not repaint it with the light layer fill.
+assert.match(
+  source,
+  /\.dsh-note-btn-primary:hover\s*\{[^}]*background:\s*var\(--dsw-alias-brand-primary\)/,
+  'the primary hover restates the brand fill',
+);
+assert.ok(!source.includes('filter: brightness'), 'the primary hover no longer washes toward white');
 
 console.log('ok — dsh-annotate-sidechat client bundle');

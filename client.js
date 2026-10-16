@@ -38,10 +38,11 @@ window.__ModuleLoader__.load({
     const zh = {
       'action.toMain': '发送到主对话',
       'action.toSide': '发送到侧边对话',
+      'guide.description': '不引用也能直接输入；发送后新建 sidechat- 对话',
       'mainChat.failed': '无法写入主对话的输入框。',
       'sideChat.pendingTitle': '新建侧边对话',
-      'sideChat.pendingHint': '发送后才新建对话，名称以 sidechat- 开头',
-      'sideChat.pendingPlaceholder': '引用内容，可编辑…',
+      'sideChat.pendingHint': '可直接输入，不必引用；发送后新建以 sidechat- 开头的对话',
+      'sideChat.pendingPlaceholder': '输入内容…',
       'sideChat.send': '发送',
       'sideChat.empty': '无法打开侧边对话。',
       'sideChat.working': '正在创建侧边对话…',
@@ -51,10 +52,11 @@ window.__ModuleLoader__.load({
     const en = {
       'action.toMain': 'Send to main chat',
       'action.toSide': 'Send to side chat',
+      'guide.description': 'Type directly — no quote needed; sending creates a sidechat- chat',
       'mainChat.failed': 'The main chat composer could not be reached.',
       'sideChat.pendingTitle': 'New side chat',
-      'sideChat.pendingHint': 'The chat is created when you send; its title starts with sidechat-',
-      'sideChat.pendingPlaceholder': 'Quoted text, editable…',
+      'sideChat.pendingHint': 'Type directly, quoting is optional; sending creates a chat titled sidechat-…',
+      'sideChat.pendingPlaceholder': 'Type your message…',
       'sideChat.send': 'Send',
       'sideChat.empty': 'The side chat could not be opened.',
       'sideChat.working': 'Creating the side chat…',
@@ -369,6 +371,7 @@ window.__ModuleLoader__.load({
 
     /** Send the pending panel: this is what creates the chat. */
     async function submitSideChat(ctx, chats, parentId) {
+      if (typeof parentId !== 'string' || parentId === '') return;
       const entry = chats.get(parentId);
       const text = entry.draft.trim();
       if (text === '' || entry.busy) return;
@@ -408,7 +411,13 @@ window.__ModuleLoader__.load({
 .dsh-note-btn-primary {
   background: var(--dsw-alias-brand-primary); border-color: var(--dsw-alias-brand-primary); color: #fff;
 }
-.dsh-note-btn-primary:hover { filter: brightness(1.05); }
+.dsh-note-btn-primary:hover {
+  /* The generic hover rule above would repaint this button with a light layer
+     fill; restate the brand fill, then darken it a touch where color-mix lands. */
+  background: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 88%, #000);
+  border-color: var(--dsw-alias-brand-primary); color: #fff;
+}
 .dsh-note-panel {
   box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;
   width: 100%; height: 100%; min-height: 0; padding: 12px;
@@ -518,7 +527,9 @@ window.__ModuleLoader__.load({
       function toSide(selection) {
         const parentId = currentSessionId(ctx);
         if (parentId === '') { store.set({ pending: selection, error: t('sideChat.empty') }); return; }
-        const text = quoteText(selection);
+        // One trailing newline, so the composer is ready for the user to type
+        // their own line right under the quote.
+        const text = quoteText(selection) + '\n';
         const entry = chats.get(parentId);
         if (typeof entry.childId === 'string' && entry.childId !== '') {
           // The chat exists: the quote joins that conversation's composer draft.
@@ -595,18 +606,23 @@ window.__ModuleLoader__.load({
     // ── the side-chat tab ───────────────────────────────────────────────────
 
     /**
-     * One side-chat page body. Before the panel is sent it is a plain composer
-     * holding the quote — no session exists yet. Once sent it declares the
-     * host's `sidebar.chat.conversation` child slot and wraps it in the
-     * framework `SessionProvider`, so the panel renders the shipped conversation
-     * (message stream + composer) for the forked child.
+     * One side-chat page body. Before the panel is sent it is a plain composer —
+     * holding a quote when the menu opened it, empty when the sidebar's guide
+     * opened it, since a side chat needs no quote. Once sent it declares the
+     * host's `sidebar.chat.conversation` child slot and wraps it in the framework
+     * `SessionProvider`, so the panel renders the shipped conversation (message
+     * stream + composer) for the forked child.
      */
     function SideChatTab(props) {
       const t = props.t;
       const info = props.useTabInfo();
       const params = info.tab.navigation.params;
       const bag = params !== null && typeof params === 'object' ? params : {};
-      const parentId = typeof bag.parentId === 'string' ? bag.parentId : '';
+      // `params.parentId` is the session that opened the page from the menu; a
+      // page opened from the sidebar guide names no parent, so the pane's own
+      // session — the framework-resolved `sessionId` — is the side chat's parent.
+      const paneSessionId = typeof props.sessionId === 'string' ? props.sessionId : '';
+      const parentId = typeof bag.parentId === 'string' && bag.parentId !== '' ? bag.parentId : paneSessionId;
       // A tab restored from a previous page load carries its child and draft in
       // its own navigation params; the store is authoritative once it has an entry.
       props.chats.ensure(parentId, {
@@ -730,15 +746,26 @@ window.__ModuleLoader__.load({
             // and refreshes its navigation params instead of stacking a second one.
             multiple: false,
             title: () => t('tab.title'),
+            // The guide (the strip's add control / empty column) is how a side
+            // chat is opened without quoting anything — picking it opens the page
+            // with no params, and the body falls back to the pane's session.
+            guide: [{
+              id: TAB_ID,
+              order: 120,
+              title: () => t('tab.title'),
+              description: () => t('guide.description'),
+            }],
           });
           const disposeBody = ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
             name: 'sidebar.right.pane.tab',
             key: TAB_ID,
             children: { 'sidebar.chat.conversation': { kind: 'single', scope: 'session' } },
             locale: NS,
-            inject: () => ({
+            // Session-scoped slots hand the injector the pane's own session id.
+            inject: (sessionId) => ({
               sessions: ctx.sessions,
               chats: chats,
+              sessionId: sessionId,
               sendSideChat: (parentId) => { void submitSideChat(ctx, chats, parentId); },
             }),
           }, SideChatTab));
