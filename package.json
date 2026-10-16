@@ -1,6 +1,6 @@
 {
   "name": "dsh-annotate-sidechat",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Select text in an assistant reply and send the located quote to the main composer or to a side chat created on send.",
