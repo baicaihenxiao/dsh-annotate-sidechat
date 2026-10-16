@@ -206,6 +206,18 @@ assert.equal(bareTextarea.props.value, '', 'the guide-opened composer starts emp
 assert.equal(bareTextarea.props.disabled, false, 'its composer is typable without any quote');
 const bareTitle = find(bareTree, (node) => node.type === 'div' && node.props.className === 'dsh-note-panelTitle');
 assert.equal(bareTitle.children[0], 'sideChat.pendingTitle', 'it is a new side chat');
+// Above the (short) composer sits what the chat will inherit. The check's
+// document has no transcript, so it reports that instead of listing nothing.
+const inheritBox = find(bareTree, (node) => node.type === 'div' && node.props.className === 'dsh-note-inherit');
+assert.ok(inheritBox !== undefined, 'the new-chat panel shows the inherited history');
+const inheritTexts = [];
+(function collect(node) {
+  if (node === null || node === undefined || typeof node !== 'object') return;
+  if (Array.isArray(node)) { for (const child of node) collect(child); return; }
+  if (node.type === 'div' && node.props.className === 'dsh-note-inheritMore') inheritTexts.push(node.children[0]);
+  collect(node.children);
+})(inheritBox);
+assert.deepEqual(inheritTexts, ['sideChat.inheritEmpty'], 'with no main transcript it says so');
 
 // ── the chip names the page's side chat ────────────────────────────────────
 const chipTree = chip.component({
@@ -234,6 +246,11 @@ assert.match(
   'the reset button is coloured with the warning tone',
 );
 assert.ok(!source.includes('filter: brightness'), 'the primary hover no longer washes toward white');
+
+// The new-chat composer stays short, and the room it frees goes to the
+// inherited history above it.
+assert.match(source, /\.dsh-note-input\s*\{[^}]*height:\s*52px/, 'the new-chat composer is kept short');
+assert.match(source, /\.dsh-note-inheritList\s*\{[^}]*overflow:\s*auto/, 'the inherited list scrolls');
 
 // The inherited prefix is folded by CSS alone, so it stays folded through
 // re-renders and copied/moved nodes.
