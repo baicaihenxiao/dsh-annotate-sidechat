@@ -1405,7 +1405,9 @@ window.__ModuleLoader__.load({
       }, [entry.focusToken, entry.busy]);
 
       // Mark the fork's inherited flow items, and keep marking them as older
-      // history pages arrive. `inherited` is what the toolbar toggles.
+      // history pages arrive. `inherited` is what the toolbar toggles. Keyed on
+      // `reference` too: the body only renders once the retain lands, after
+      // this effect first ran against no body at all.
       React.useEffect(() => {
         const node = bodyRef.current;
         if (node === null) { setInherited(0); return undefined; }
@@ -1441,7 +1443,7 @@ window.__ModuleLoader__.load({
           observer.disconnect();
           if (frame !== null) cancelAnimationFrame(frame);
         };
-      }, [boundaryTurn, childId, first]);
+      }, [boundaryTurn, childId, first, reference]);
 
       // Reset (destructive, secondary) sits left of New (additive, brand-tinted):
       // same size and shape, different glyph, colour and tooltip.

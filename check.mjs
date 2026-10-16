@@ -394,6 +394,11 @@ assert.ok(source.includes('node.scrollTop = node.scrollHeight'), 'the panel comp
 assert.ok(source.includes('M8.3125 0.980183C8.66767 1.0531'), 'with the composer arrow glyph');
 assert.ok(find(bareTree, (node) => node.type === 'svg') !== undefined, 'the panel renders the send icon');
 
+// The body the marking reads only renders once the child's retain lands, so the
+// marking effect must run again then, or the toggle never appears.
+assert.ok(source.includes('}, [boundaryTurn, childId, first, reference]);'),
+  'the inherited marking re-runs once the conversation body mounts');
+
 // The inherited prefix is folded by CSS alone, so it stays folded through
 // re-renders and copied/moved nodes.
 assert.match(
