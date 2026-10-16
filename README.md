@@ -1,33 +1,47 @@
 # dsh-annotate-sidechat
 
 A DeepSeek Harness (DSH) Web plugin: **select text in an assistant reply,
-annotate it in a popover, and continue the thought in a side chat**.
+send it to the main chat or to a side chat**.
 
 ```
-划选 assistant 回复  →  「注解」浮层  →  注解编辑器  →  fork 出的侧边对话
+划选 assistant 回复  →  两个选项：Send to main chat / Send to side chat
+                        ├─ 主对话：引用内容追加到输入框（空一行）
+                        └─ 侧边对话：引用内容进入侧边面板，发送后才新建 sidechat-N
 ```
 
-> **Status: 0.0.1 — not yet verified in a browser.** This version has known
-> defects, listed under [Known issues](#known-issues). It is a starting point,
-> not a working feature.
+> **Status: 0.1.0 — checked headlessly (`node check.mjs`), not yet verified in a
+> browser.** See [Checks](#checks).
 
 ## What it does
 
-1. **Select** text inside an assistant reply. A small 「Annotate」 popover
-   appears below the selection.
-2. **Annotate.** The popover opens an editor showing the quoted passage and a
-   text box. `Enter` sends, `Shift+Enter` breaks the line, `Esc` cancels.
-3. **Continue in a side chat.** Sending forks the session on screen
-   (`sessions.fork`) and opens the child in the right sidebar, with the
-   annotation waiting in that panel's composer as a draft.
+1. **Select** text inside an assistant reply of the main chat. A two-item menu
+   opens right below the selection. Nothing inside the right sidebar, and no
+   control or code-block chrome, is treated as quotable.
+2. **Send to main chat** appends the quote to the main composer draft: the text
+   already there, one blank line, then the quote. `Send to side chat` puts the
+   same quote in a side chat.
+3. **The quote is English-located** — which spot of the transcript is being
+   quoted, then the passage as a block quote:
 
-The side-chat panel is not a reimplementation: it declares the host's own
-`sidebar.chat.conversation` child slot and wraps it in the framework
-`SessionProvider`, so the panel renders the shipped conversation — message
-stream and composer included.
+   ```
+   Quoted from the assistant's reply (turn 3, paragraph 2):
+   > the selected passage
+   > continues here
+   ```
+4. **The side chat is created on send, not on click.** `Send to side chat`
+   reveals (or opens) the side-chat page in the right sidebar; until its composer
+   is sent, that page is a plain editable draft and **no chat exists** in the
+   session list. Sending then forks the session on screen (`sessions.fork`),
+   titles the child `sidechat-1`, `sidechat-2`, … (counting that parent's
+   existing side chats), and sends the draft as the child's first message.
 
-Nothing is persisted and the annotated reply is never modified: closing the
-editor leaves no trace.
+The side-chat panel is not a reimplementation: once the child exists, the panel
+declares the host's own `sidebar.chat.conversation` child slot and wraps it in
+the framework `SessionProvider`, so it renders the shipped conversation —
+message stream and composer included. Text inside that panel is the host's DOM:
+it stays selectable and copyable, and the sidebar is never quoted.
+
+Nothing is persisted and the quoted reply is never modified.
 
 ## Install
 
@@ -53,39 +67,49 @@ client-only changes need no `dsh web` restart.
 
 | File | Role |
 |---|---|
-| `client.js` | Everything: selection capture, the popover and editor, the sidebar tab type and panel, the draft seed |
+| `client.js` | Everything: selection capture, the quote, the two-item menu, the sidebar page type and its pending/created panel |
 | `index.js` | Host half — intentionally empty; the feature is entirely Client-side |
 | `cordis.patch.yml` | Inserts the plugin row so the Client module loads |
 | `package.json` | Bundle manifest, `dsh.client` declaration, peer packages |
+| `check.mjs` | Headless check: bundle registration, quote formatting, page-type and panel wiring (`node check.mjs`) |
 
 ## How it fits the host
 
 | Host seam | Used for |
 |---|---|
-| `[data-chat-flow-kind="assistant-step"]` | Deciding what is quotable: both selection endpoints must sit in the same assistant reply |
+| `[data-chat-flow-kind="assistant-step"]` | Deciding what is quotable: selection endpoints must sit in one assistant reply |
+| `[data-chat-turn]`, `[data-chat-group-part]` | The location line (turn number, reasoning vs. reply) |
 | `[data-conversation-session]` | Reading the session id when the list snapshot has no `current` |
-| `ctx.sessions.fork` / `retain` / `scope` | Creating the child session and reaching its input machine |
-| `ctx.sidebarRight.openTab` + `ctx.sidebarRightTabs` | Opening the child as a right-sidebar page |
-| `sidebar.right.pane.tab` + `sidebar.chat.conversation` | Rendering the panel as the shipped conversation |
-| `ctx.conversation.input.for(scope).setDraft` | Seeding the annotation into the child's composer |
+| `[data-sidebar-right-*]` | Keeping sidebar selections out of the quote menu |
+| `ctx.sessions.fork` / `retain` / `binding.session` | Creating the child on send, renaming it, sending its first prompt |
+| `ctx.sessions.list` | Counting a parent's existing `sidechat-*` children for the next title |
+| `ctx.sidebarRight.openTab` + `ctx.sidebarRightTabs` | Opening the side-chat page (`multiple: false`, so reopening reveals it and refreshes its params) |
+| `sidebar.right.pane.tab` + `sidebar.chat.conversation` | Rendering the panel: pending composer, then the shipped conversation |
+| `ctx.conversation.input.for(scope).setDraft` | Writing the quote into the main chat's or the existing side chat's composer |
 
 These are internal seams, not a public contract: if the host renames one, the
-affected leg degrades (no popover, or the annotation stays in the editor)
-rather than crashing the page.
+affected leg degrades (no menu, or an error line in the panel) rather than
+crashing the page.
 
-## Known issues
+## Checks
 
-- **Submitting the editor throws.** `capture()` returns the selected text as
-  `text`, while `toDraft()` reads `quote`, so the send path fails with
-  `Cannot read properties of undefined (reading 'length')`.
-- **Text selection inside the panel is blocked.** The panel wrapper shares the
-  overlay's `data-dsh-annotate-sidechat` marker, and the overlay cancels
-  mousedown on that marker to keep its own selection alive, so a press inside
-  the panel never starts a selection.
-- **The first message uses Chinese scaffolding** (`针对这段回复` / `我的注解`),
-  and the side chat is named from the inherited title rather than a
-  `sidechat-<n>` label.
-- No automated checks and no browser-level verification yet.
+```
+node check.mjs
+```
+
+Covers the bundle registration, the quote and draft-append seams, zh/en key
+parity, the page-type registration (`multiple: false`), and the pending panel
+rendered from a restored tab's navigation params.
+
+The DOM layer was additionally driven once through headless Chrome with a
+scratch harness (not committed — it needs a local Chrome plus `puppeteer-core`):
+selection in the main chat yields exactly the two options, a sidebar selection
+yields none, a sidebar mousedown is not cancelled, `Send to main chat` appends
+the quote after one blank line, `Send to side chat` forks nothing, and sending
+the pending panel forks once, titles the child `sidechat-N`, and prompts it. The
+real host's fork/rename/prompt RPCs and the live sidebar markers were read from
+the host sources, not exercised against a running GUI — a manual pass on the
+real page is still worth doing.
 
 ## License
 

@@ -1,9 +1,9 @@
 {
   "name": "dsh-annotate-sidechat",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Select text in an assistant reply, write an annotation in a popover, and continue in a forked side chat in the right sidebar.",
+  "description": "Select text in an assistant reply and send the located quote to the main composer or to a side chat created on send.",
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
@@ -18,8 +18,8 @@
     "./package.json": "./package.json"
   },
   "meta": {
-    "title": "Annotate → side chat",
-    "description": "Select assistant reply text, annotate it in a popover, and continue the thought in a forked side chat."
+    "title": "Quote → side chat",
+    "description": "Select assistant reply text, then send the located quote to the main composer or to a side chat that is created when you send it."
   },
   "dsh": {
     "bundle": {
