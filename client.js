@@ -8,6 +8,10 @@
  *   Send to side chat  →  the same quote reaches a side-chat composer in the
  *                         right sidebar: the one that is open, or a new one
  *
+ * Inside a side chat that has been sent, the same gesture offers one item:
+ *
+ *   Send to chat       →  the quote joins that side chat's own composer
+ *
  * The quote is English-located — `Quoted from the assistant's reply (turn 3,
  * paragraph 2):` followed by the block-quoted passage — so the receiver knows
  * which spot of the transcript is being talked about.
@@ -41,6 +45,7 @@ window.__ModuleLoader__.load({
     const NS = 'annotateSidechat';
 
     const zh = {
+      'action.toChat': '发送到此对话',
       'action.toMain': '发送到主对话',
       'action.toSide': '发送到侧边对话',
       'guide.description': '不引用也能直接输入；发送后新建 sidechat- 对话',
@@ -65,6 +70,7 @@ window.__ModuleLoader__.load({
     };
 
     const en = {
+      'action.toChat': 'Send to chat',
       'action.toMain': 'Send to main chat',
       'action.toSide': 'Send to side chat',
       'guide.description': 'Type directly — no quote needed; sending creates a sidechat- chat',
@@ -104,6 +110,8 @@ window.__ModuleLoader__.load({
     const INHERITED = 'data-dsh-sidechat-inherited';
     /** Attribute that folds every inherited flow item away while it is set. */
     const COLLAPSED = 'data-dsh-sidechat-collapsed';
+    /** On a sent side chat's body: the child session its replies quote into. */
+    const SIDE_CHILD = 'data-dsh-sidechat-child';
     /** Tab type identity: the `sidebar.right.pane.tab` key and the page kind. */
     const TAB_ID = 'dsh-annotate-sidechat:note';
     const TAB_KIND = 'annotate-sidechat-note';
@@ -311,17 +319,25 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The assistant step owning `node`, or null when the node is outside one,
-     * inside the right sidebar, inside our own overlay, or still streaming.
+     * The assistant step owning `node`, and where a quote of it goes: `side` is
+     * the child session when the step is a reply inside one of our sent side
+     * chats, '' for the main chat. Null when the node is outside a step, in any
+     * other sidebar surface, inside our own overlay or a pending page's copied
+     * rows, or still streaming.
      */
     function stepOf(node) {
       const element = elementOf(node);
-      if (element === null || element.closest('[' + OURS + ']') !== null) return null;
+      if (element === null) return null;
       const step = element.closest(ASSISTANT_STEP);
       if (step === null) return null;
-      if (step.closest(SIDEBAR) !== null) return null;
       if (step.hasAttribute('data-streaming') || step.querySelector('[data-streaming]') !== null) return null;
-      return step;
+      const body = step.closest('[' + SIDE_CHILD + ']');
+      if (body !== null) {
+        const side = body.getAttribute(SIDE_CHILD) || '';
+        return side === '' ? null : { step: step, side: side };
+      }
+      if (step.closest('[' + OURS + ']') !== null || step.closest(SIDEBAR) !== null) return null;
+      return { step: step, side: '' };
     }
 
     /** The selected text, block-aware, with nothing from NON_QUOTE. */
@@ -337,7 +353,7 @@ window.__ModuleLoader__.load({
       return textOf(fragment).replace(/\n{3,}/g, '\n\n').trim();
     }
 
-    /** One valid menu target: where it sits in the reply, the text, and its rect. */
+    /** One valid menu target: where it sits in the reply, the text, its rect, and its side chat. */
     function capture() {
       let selection;
       try { selection = window.getSelection(); } catch (error) { return null; }
@@ -345,8 +361,9 @@ window.__ModuleLoader__.load({
       const range = selection.getRangeAt(0);
       const common = elementOf(range.commonAncestorContainer);
       if (common === null || inNonQuote(range.startContainer) || inNonQuote(range.endContainer)) return null;
-      const step = stepOf(common);
-      if (step === null) return null;
+      const owner = stepOf(common);
+      if (owner === null) return null;
+      const step = owner.step;
       const text = selectionText(range);
       if (text === '') return null;
       return {
@@ -355,6 +372,7 @@ window.__ModuleLoader__.load({
         turn: turnOf(step),
         part: partOf(step),
         block: blockLabel(step, range),
+        side: owner.side,
       };
     }
 
@@ -1237,11 +1255,24 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /**
+       * Send to chat, offered inside a sent side chat: the quote joins that
+       * side chat's own composer. It is on screen, so its input is up.
+       */
+      async function toChat(selection) {
+        clearSelection();
+        store.set({ pending: null, error: '' });
+        if (!(await writeDraft(ctx, selection.side, draftQuote(selection), 25))) {
+          store.set({ pending: selection, error: t('sideChat.quoteFailed') });
+        }
+      }
+
       reactRoot.render(h(Overlay, {
         t: t,
         store: store,
         toMain: (selection) => { void toMain(selection); },
         toSide: (selection) => { void toSide(selection); },
+        toChat: (selection) => { void toChat(selection); },
       }));
 
       document.addEventListener('selectionchange', schedule);
@@ -1262,7 +1293,10 @@ window.__ModuleLoader__.load({
       };
     }
 
-    /** The two-item menu, anchored under the selection. */
+    /**
+     * The menu anchored under the selection: two items in the main chat, one —
+     * Send to chat — inside a sent side chat.
+     */
     function Overlay(props) {
       const t = props.t;
       const state = React.useSyncExternalStore(
@@ -1281,16 +1315,21 @@ window.__ModuleLoader__.load({
 
       if (selection === null) return null;
       return h('div', { className: 'dsh-note-card', ref: cardRef, [OURS]: '' },
-        h('div', { className: 'dsh-note-menu' },
-          h('button', {
-            className: 'dsh-note-btn', type: 'button',
-            onClick: () => props.toMain(selection),
-          }, t('action.toMain')),
-          h('button', {
-            className: 'dsh-note-btn dsh-note-btn-primary', type: 'button',
-            onClick: () => props.toSide(selection),
-          }, t('action.toSide')),
-        ),
+        selection.side !== ''
+          ? h('div', { className: 'dsh-note-menu' },
+              h('button', {
+                className: 'dsh-note-btn dsh-note-btn-primary', type: 'button',
+                onClick: () => props.toChat(selection),
+              }, t('action.toChat')))
+          : h('div', { className: 'dsh-note-menu' },
+              h('button', {
+                className: 'dsh-note-btn', type: 'button',
+                onClick: () => props.toMain(selection),
+              }, t('action.toMain')),
+              h('button', {
+                className: 'dsh-note-btn dsh-note-btn-primary', type: 'button',
+                onClick: () => props.toSide(selection),
+              }, t('action.toSide'))),
         state.error === '' ? null : h('div', { className: 'dsh-note-error' }, state.error),
       );
     }
@@ -1483,6 +1522,7 @@ window.__ModuleLoader__.load({
           h('div', {
             className: 'dsh-note-sideBody',
             ref: bodyRef,
+            [SIDE_CHILD]: childId,
             ...entry.collapsed ? { [COLLAPSED]: '' } : {},
           }, h(props.SessionProvider, { session: reference },
             props.renderSlot(CONVERSATION_SLOT, {}))),
@@ -1595,6 +1635,8 @@ window.__ModuleLoader__.load({
         draftQuote: draftQuote,
         appendDraft: appendDraft,
         ownMessageIndex: ownMessageIndex,
+        stepOf: stepOf,
+        Overlay: Overlay,
         selectionText: selectionText,
         capture: capture,
         sideChatTitle: sideChatTitle,

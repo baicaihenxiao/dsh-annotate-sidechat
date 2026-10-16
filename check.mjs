@@ -118,6 +118,56 @@ assert.equal(ownMessageIndex(rows, sent, 4), 2, 'an inherited quote of the same 
 assert.equal(ownMessageIndex(rows, sent, null), 2, 'without a turn boundary the longer needle still tells them apart');
 assert.equal(ownMessageIndex(rows, 'not on the page', 4), -1, 'a message not on the page is not found');
 
+// ── where a selected reply can be quoted to ────────────────────────────────
+// A fake element answers `closest` for any selector naming one of its marks.
+class FakeElement {
+  constructor(attrs = {}) { this.attrs = attrs; this.marks = {}; }
+  closest(selector) {
+    const mark = Object.keys(this.marks).find((name) => selector.includes(name));
+    return mark === undefined ? null : this.marks[mark];
+  }
+  hasAttribute(name) { return name in this.attrs; }
+  getAttribute(name) { return this.attrs[name] ?? null; }
+  querySelector() { return null; }
+}
+globalThis.Element = FakeElement;
+const { stepOf, Overlay } = plugin.__test;
+const stepIn = ({ side, ours = false, sidebar = false, streaming = false } = {}) => {
+  const step = new FakeElement(streaming ? { 'data-streaming': '' } : {});
+  step.marks['assistant-step'] = step;
+  if (side !== undefined) step.marks['data-dsh-sidechat-child'] = new FakeElement({ 'data-dsh-sidechat-child': side });
+  if (ours) step.marks['data-dsh-annotate-sidechat'] = new FakeElement();
+  if (sidebar) step.marks['data-sidebar-right'] = new FakeElement();
+  return step;
+};
+assert.equal(stepOf(stepIn()).side, '', 'a main chat reply quotes to the main chat or a side chat');
+assert.equal(stepOf(stepIn({ side: 'child-9', ours: true, sidebar: true })).side, 'child-9',
+  'a reply inside a sent side chat quotes into that side chat');
+assert.equal(stepOf(stepIn({ ours: true, sidebar: true })), null, 'a pending page\'s copied rows are not quotable');
+assert.equal(stepOf(stepIn({ sidebar: true })), null, 'any other sidebar chat is not quotable');
+assert.equal(stepOf(stepIn({ side: '', ours: true, sidebar: true })), null, 'a body with no child is not quotable');
+assert.equal(stepOf(stepIn({ side: 'child-9', ours: true, sidebar: true, streaming: true })), null,
+  'a reply still being written is not quotable');
+
+const menuOf = (pending, sent) => Overlay({
+  t: (key) => key,
+  store: { subscribe: () => () => {}, getSnapshot: () => ({ pending, error: '' }) },
+  toMain: (selection) => sent.push(['main', selection]),
+  toSide: (selection) => sent.push(['side', selection]),
+  toChat: (selection) => sent.push(['chat', selection]),
+});
+const buttonsOf = (tree) => find(tree, (node) => node.props.className === 'dsh-note-menu').children
+  .filter((node) => node !== null && node !== undefined && node.type === 'button');
+const rect = { left: 0, bottom: 0 };
+const sentTo = [];
+const inSide = buttonsOf(menuOf({ text: 'x', rect, side: 'child-9' }, sentTo));
+assert.deepEqual(inSide.map((button) => button.children[0]), ['action.toChat'], 'a side chat offers Send to chat alone');
+inSide[0].props.onClick();
+assert.equal(sentTo[0][0], 'chat', 'Send to chat sends the quote to that chat');
+assert.equal(sentTo[0][1].side, 'child-9', 'with the side chat it was selected in');
+assert.deepEqual(buttonsOf(menuOf({ text: 'x', rect, side: '' }, [])).map((button) => button.children[0]),
+  ['action.toMain', 'action.toSide'], 'the main chat keeps its two items');
+
 // ── registration ────────────────────────────────────────────────────────────
 const disposers = [];
 const registered = [];

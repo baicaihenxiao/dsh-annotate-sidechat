@@ -13,6 +13,8 @@ select an assistant reply  →  two options: Send to main chat / Send to side ch
                               ├─ main chat: the quote is appended to the composer
                               │  (one blank line before, a blank line after, caret in place)
                               └─ side chat: the quote goes to the open side chat, or a new one
+
+select a reply inside a sent side chat  →  Send to chat: the quote goes to that side chat's composer
 ```
 
 On the left, the main chat with the quote menu open on a selected word. On the
@@ -28,8 +30,9 @@ created with and the reply, and the next quote waiting in its composer.
 ## What it does
 
 1. **Select** text inside an assistant reply of the main chat. A two-item menu
-   opens right below the selection. Nothing inside the right sidebar, and no
-   control or code-block chrome, is treated as quotable.
+   opens right below the selection. In the right sidebar only a side chat that
+   has been sent is quotable (see 8), and no control or code-block chrome ever
+   is.
 2. **Send to main chat** appends the quote to the main composer draft: the text
    already there, one blank line, then the quote. Either destination ends the
    draft with a blank line and hands the composer the keyboard, so the caret
@@ -106,6 +109,11 @@ created with and the reply, and the next quote waiting in its composer.
    reports it in the menu instead of doing nothing. A quote aimed at a side chat
    whose composer does not come up within ~5 s brings the menu back with an
    error instead of disappearing.
+8. **Quote inside a side chat.** Selecting text in a reply of a side chat that
+   has been sent opens a one-item menu, `Send to chat`, which appends the
+   located quote to that side chat's own composer — the same format, blank
+   lines and focus as the other two. A page that has not been sent yet, and any
+   other sidebar chat, offers no menu.
 
 The side-chat panel is not a reimplementation: once the child exists, the panel
 declares its own `annotateSidechat.conversation` child slot, wraps it in the
@@ -114,7 +122,8 @@ factory there — the shipped conversation, message stream and composer included
 (It does not use the host's `sidebar.chat.conversation`: the built-in subagent
 chat owns that single slot, and the slot registry refuses a second declaration.)
 Text inside that panel is the host's DOM: it stays selectable and copyable, and
-the sidebar is never quoted.
+a selection in one of its replies offers `Send to chat` (item 8); nothing else
+in the sidebar is quoted.
 
 Nothing is written back into the annotated reply. A page carries its state
 (side-chat id, number, child, boundary, draft, snapshot) in its navigation
@@ -238,7 +247,7 @@ Points worth knowing:
 | `[data-chat-flow-kind="assistant-step"]` | Deciding what is quotable: selection endpoints must sit in one assistant reply |
 | `[data-chat-turn]`, `[data-chat-group-part]` | The location line (turn number, reasoning vs. reply) |
 | `[data-conversation-session]` | Reading the session id when the list snapshot has no `current`, and picking the on-screen session's own transcript for the snapshot |
-| `[data-sidebar-right-*]` | Keeping sidebar selections out of the quote menu |
+| `[data-sidebar-right-*]` | Keeping sidebar selections out of the quote menu, except in a sent side chat's body (marked by the plugin with its child session) |
 | `ctx.sessions.fork` / `retain` / `binding.session` | Creating the child on send, renaming it, sending its first prompt |
 | `[data-chat-flow-key]` / `[data-chat-flow-kind="user"]` | Cutting the transcript at this side chat's own first message (the turn boundary from the event windows is the fallback) |
 | `ctx.sessions.binding().eventSource` | Which turns a fresh fork inherited (the child's window ∩ its parent's), for folding them away |
@@ -267,8 +276,11 @@ its tab chip), the pending panel for both a menu-opened and a guide-opened page
 (Reset left of New, each with its own glyph, class and tooltip — caution tone
 for Reset, brand tone for New — and a transcript that takes the room above a
 content-sized composer card whose rows scroll inside it), the primary hover
-fill, the inherited-prefix collapse rule, and a fold boundary that an inherited
-quote of the same spot cannot capture.
+fill, the inherited-prefix collapse rule, a fold boundary that an inherited
+quote of the same spot cannot capture, where a selected reply quotes to (the
+main chat, a sent side chat, or nowhere for a pending page's copied rows, other
+sidebar chats and replies still being written), and the one-item `Send to chat`
+menu that hands its quote to that side chat.
 
 With a local `dsh` install the check also replays every slot registration this
 plugin makes against the host's real `SlotCore`
