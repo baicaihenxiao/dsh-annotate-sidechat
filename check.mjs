@@ -11,7 +11,17 @@ import { readFileSync } from 'node:fs';
 const source = readFileSync(new URL('./client.js', import.meta.url), 'utf8');
 const loads = [];
 
-globalThis.window = { __ModuleLoader__: { load: (spec) => loads.push(spec) } };
+const storage = new Map();
+globalThis.window = {
+  __ModuleLoader__: { load: (spec) => loads.push(spec) },
+  localStorage: {
+    getItem: (key) => (storage.has(key) ? storage.get(key) : null),
+    setItem: (key, value) => { storage.set(key, String(value)); },
+    removeItem: (key) => { storage.delete(key); },
+    key: (index) => Array.from(storage.keys())[index] ?? null,
+    get length() { return storage.size; },
+  },
+};
 globalThis.document = {
   querySelector: () => null,
   createElement: () => ({ dataset: {}, remove() {}, setAttribute() {}, append() {}, textContent: '' }),
@@ -133,7 +143,11 @@ const ctx = {
     }) },
     scope: () => undefined,
     binding: () => undefined,
-    retain: () => { throw new Error('retain must not run before a send'); },
+    retain: () => ({
+      ready: Promise.resolve(),
+      binding: { session: {} },
+      release: () => {},
+    }),
   },
   get: () => undefined,
 };
@@ -213,6 +227,38 @@ const emptyNote = find(transcript, (node) => node.type === 'div' && node.props.c
 assert.equal(emptyNote.children[0], 'sideChat.inheritEmpty', 'with no main transcript it says so');
 assert.ok(find(bareTree, (node) => node.type === 'div' && node.props.className === 'dsh-note-composer') !== undefined,
   'the composer sits in a card of its own');
+
+// ── a reloaded page finds itself again ─────────────────────────────────────
+// The sidebar persists layouts but not navigation params, so a restored page
+// gets its identity from the record this plugin kept for the tab: not a new
+// mint, and with its draft, child and inherited snapshot intact.
+storage.set('dsh-annotate-sidechat:page:tab-kept', JSON.stringify({
+  at: Date.now(),
+  id: 'note-kept',
+  parentId: 'parent-1',
+  index: 7,
+  first: 'typed earlier',
+  draft: 'a draft kept across the reload',
+  inherited: { columnClass: '', html: '<div data-chat-flow-key="k"><p>kept row</p></div>', messages: 1, turns: 1, hidden: 0 },
+}));
+const reloaded = panelOf(undefined, 'parent-1', 'tab-kept');
+assert.equal(injected.chats.idOfTab('tab-kept'), 'note-kept', 'the page keeps its side chat instead of minting one');
+assert.equal(injected.chats.get('note-kept').draft, 'a draft kept across the reload', 'with its draft');
+assert.equal(injected.chats.get('note-kept').index, 7, 'and its number');
+assert.ok(JSON.stringify(reloaded).includes('kept row'), 'the restored page renders the history it snapshotted');
+
+storage.set('dsh-annotate-sidechat:page:tab-child', JSON.stringify({
+  at: Date.now(),
+  id: 'note-child',
+  parentId: 'parent-1',
+  index: 2,
+  childId: 'child-7',
+}));
+const restoredChat = panelOf(undefined, 'parent-1', 'tab-child');
+assert.equal(injected.chats.idOfTab('tab-child'), 'note-child', 'a page with a chat keeps it too');
+assert.equal(injected.chats.get('note-child').childId, 'child-7', 'and restores that conversation');
+assert.equal(find(restoredChat, (node) => node.type === 'textarea'), undefined,
+  'and shows its conversation instead of a new-chat composer');
 
 // ── the chip names the page's side chat ────────────────────────────────────
 const chipTree = chip.component({

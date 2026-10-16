@@ -87,9 +87,14 @@ the framework `SessionProvider`, so it renders the shipped conversation —
 message stream and composer included. Text inside that panel is the host's DOM:
 it stays selectable and copyable, and the sidebar is never quoted.
 
-Nothing is written back into the annotated reply, and the plugin keeps no store
-of its own: each page carries its state (side-chat id, number, child, boundary,
-draft) in its own navigation params, which the host persists with the layout.
+Nothing is written back into the annotated reply. A page carries its state
+(side-chat id, number, child, boundary, draft, snapshot) in its navigation
+params while it lives, and the plugin also keeps a small per-tab record in
+`localStorage` (`dsh-annotate-sidechat:page:<tabId>`, swept after a week and
+dropped when the tab closes): the sidebar persists its layouts but not those
+params, so without it a reload would turn every side chat back into an empty new
+one. On mount a page takes its identity from its params, else from that record,
+else mints a fresh side chat (the guide-opened case).
 
 ## Install
 
@@ -133,7 +138,7 @@ client-only changes need no `dsh web` restart.
 | `[data-chat-flow-key]` / `[data-chat-flow-kind="user"]` | Cutting the transcript at this side chat's own first message (the turn boundary from the event windows is the fallback) |
 | `ctx.sessions.binding().eventSource` | Which turns a fresh fork inherited (the child's window ∩ its parent's), for folding them away |
 | `ctx.sessions.list` | Numbering side chats and reading the main chat's title |
-| `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` / `isExpanded` / `focus` | Opening a page per side chat (retried while the surface mounts), rewriting its params in place, finding the open one, and bringing it into view |
+| `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` / `isExpanded` / `focus` / `registerCloseHandler` | Opening a page per side chat (retried while the surface mounts), rewriting its params in place, finding the open one, bringing it into view, and forgetting a closed page |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
 | `sidebar.chat.conversation` | Rendering the shipped conversation inside the panel |
 | `ctx.get('uiWorkspace').archiveSession` | `Reset side chat` archiving the chat it replaces |

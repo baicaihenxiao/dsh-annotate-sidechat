@@ -107,6 +107,68 @@ window.__ModuleLoader__.load({
     const TAB_KIND = 'annotate-sidechat-note';
     /** Side-chat titles all start here; the number after it is the chat's index. */
     const TITLE_PREFIX = 'sidechat-';
+    /** Plugin-owned per-page memory. The sidebar persists its layout (ids and
+     *  addresses) but not the navigation params a page was opened with, so on
+     *  reload a page would forget which side chat it is, what it inherited and
+     *  what was typed into it. Records are keyed by the tab's own id, which the
+     *  layout does keep, and swept by age. */
+    const PAGE_PREFIX = 'dsh-annotate-sidechat:page:';
+    const PAGE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+    const PAGE_WRITE_DELAY = 300;
+    const pageRecords = new Map();
+
+    function readPage(tabId) {
+      if (typeof tabId !== 'string' || tabId === '') return null;
+      if (pageRecords.has(tabId)) return pageRecords.get(tabId);
+      let record = null;
+      try {
+        const raw = window.localStorage.getItem(PAGE_PREFIX + tabId);
+        const parsed = raw === null ? null : JSON.parse(raw);
+        if (parsed !== null && typeof parsed === 'object' && typeof parsed.id === 'string' && parsed.id !== '') record = parsed;
+      } catch (error) { record = null; }
+      pageRecords.set(tabId, record);
+      return record;
+    }
+
+    function writePage(tabId, entry) {
+      if (typeof tabId !== 'string' || tabId === '' || typeof entry.id !== 'string' || entry.id === '') return;
+      const record = {
+        at: Date.now(),
+        id: entry.id,
+        parentId: entry.parentId,
+        index: entry.index,
+        ...entry.childId === null ? {} : { childId: entry.childId },
+        ...entry.boundaryTurn === null ? {} : { boundaryTurn: entry.boundaryTurn },
+        ...entry.first === '' ? {} : { first: entry.first },
+        ...entry.inherited === null ? {} : { inherited: entry.inherited },
+        ...entry.draft === '' ? {} : { draft: entry.draft },
+      };
+      pageRecords.set(tabId, record);
+      try { window.localStorage.setItem(PAGE_PREFIX + tabId, JSON.stringify(record)); } catch (error) { /* the page just loses its memory */ }
+    }
+
+    function forgetPage(tabId) {
+      if (typeof tabId !== 'string' || tabId === '') return;
+      pageRecords.delete(tabId);
+      try { window.localStorage.removeItem(PAGE_PREFIX + tabId); } catch (error) { /* nothing to forget */ }
+    }
+
+    /** Drop the records no tab has touched for a week; each carries markup. */
+    function sweepPages() {
+      const cutoff = Date.now() - PAGE_MAX_AGE;
+      try {
+        const stale = [];
+        for (let index = 0; index < window.localStorage.length; index += 1) {
+          const key = window.localStorage.key(index);
+          if (key === null || !key.startsWith(PAGE_PREFIX)) continue;
+          let record = null;
+          try { record = JSON.parse(window.localStorage.getItem(key)); } catch (error) { record = null; }
+          if (record === null || typeof record.at !== 'number' || record.at < cutoff) stale.push(key);
+        }
+        for (const key of stale) window.localStorage.removeItem(key);
+      } catch (error) { /* storage unavailable */ }
+    }
+
     /** How much inherited message markup one new-chat page carries. */
     const INHERIT_MARKUP_MAX = 4096;
     const INHERIT_MARKUP_TOTAL = 24576;
@@ -373,6 +435,20 @@ window.__ModuleLoader__.load({
         collapsed: true,
       };
       const notify = () => { for (const fn of Array.from(listeners)) fn(); };
+      const writing = new Map();
+      /** Keep this page's record current; typing collapses into one write. */
+      const remember = (id) => {
+        if (idsByTab.get(id) === undefined) return;
+        const timer = writing.get(id);
+        if (timer !== undefined) clearTimeout(timer);
+        writing.set(id, setTimeout(() => {
+          writing.delete(id);
+          const entry = entries.get(id);
+          const tabId = idsByTab.get(id);
+          if (entry === undefined || tabId === undefined) return;
+          writePage(tabId, entry);
+        }, PAGE_WRITE_DELAY));
+      };
       const store = {
         subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
         get(id) {
@@ -391,6 +467,7 @@ window.__ModuleLoader__.load({
         patch(id, next) {
           if (typeof id !== 'string' || id === '') return;
           entries.set(id, { ...(entries.get(id) ?? EMPTY), ...next, id: id });
+          remember(id);
           notify();
         },
         /** Live side chats of one parent session, for numbering and for the toolbar. */
@@ -426,6 +503,7 @@ window.__ModuleLoader__.load({
           if (previous !== undefined && previous !== id) idsByTab.delete(previous);
           tabIds.set(tabId, id);
           idsByTab.set(id, tabId);
+          remember(id);
         },
         idOfTab(tabId) {
           return typeof tabId === 'string' ? tabIds.get(tabId) : undefined;
@@ -1164,17 +1242,24 @@ window.__ModuleLoader__.load({
       const paneSessionId = typeof props.sessionId === 'string' ? props.sessionId : '';
       const parentId = typeof bag.parentId === 'string' && bag.parentId !== '' ? bag.parentId : paneSessionId;
       const tabId = typeof info.tab.id === 'string' ? info.tab.id : '';
-      // A page opened from the guide carries no params at all: it mints its own
-      // side chat, once per tab.
-      const id = typeof bag.id === 'string' && bag.id !== '' ? bag.id : props.sideChatForTab(tabId, parentId);
+      // Where this page's identity comes from, best first: the navigation params
+      // it was opened with, the record this plugin kept for the tab (which is
+      // all a reloaded page has, since the sidebar persists layouts but not
+      // params), or a fresh side chat for a guide-opened page.
+      const fromParams = typeof bag.id === 'string' && bag.id !== '';
+      const stored = fromParams ? null : readPage(tabId);
+      const id = fromParams ? bag.id : (stored === null ? props.sideChatForTab(tabId, parentId) : stored.id);
+      const source = fromParams ? bag : stored;
       props.chats.ensure(id, {
-        parentId: parentId,
-        index: Number.isSafeInteger(bag.index) ? bag.index : 1,
-        childId: typeof bag.childId === 'string' ? bag.childId : null,
-        boundaryTurn: Number.isSafeInteger(bag.boundaryTurn) ? bag.boundaryTurn : null,
-        first: typeof bag.first === 'string' ? bag.first : '',
-        inherited: bag.inherited !== null && typeof bag.inherited === 'object' ? bag.inherited : null,
-        draft: typeof bag.draft === 'string' ? bag.draft : '',
+        parentId: source !== null && typeof source.parentId === 'string' && source.parentId !== ''
+          ? source.parentId : parentId,
+        index: source !== null && Number.isSafeInteger(source.index) ? source.index : 1,
+        childId: source !== null && typeof source.childId === 'string' ? source.childId : null,
+        boundaryTurn: source !== null && Number.isSafeInteger(source.boundaryTurn) ? source.boundaryTurn : null,
+        first: source !== null && typeof source.first === 'string' ? source.first : '',
+        inherited: source !== null && source.inherited !== null && typeof source.inherited === 'object'
+          ? source.inherited : null,
+        draft: source !== null && typeof source.draft === 'string' ? source.draft : '',
       });
       props.chats.bindTab(tabId, id);
       const entry = React.useSyncExternalStore(
@@ -1388,12 +1473,15 @@ window.__ModuleLoader__.load({
       const bag = params !== null && typeof params === 'object' ? params : {};
       const tabId = typeof info.tab.id === 'string' ? info.tab.id : '';
       const bound = props.chats.idOfTab(tabId);
-      const id = typeof bound === 'string' ? bound : (typeof bag.id === 'string' ? bag.id : '');
+      const id = typeof bound === 'string' ? bound : (typeof bag.id === 'string' && bag.id !== '' ? bag.id : '');
       const entry = React.useSyncExternalStore(
         (fn) => props.chats.subscribe(fn),
         () => props.chats.get(id),
       );
-      const index = entry.index > 0 ? entry.index : (Number.isSafeInteger(bag.index) ? bag.index : 1);
+      const stored = id === '' ? readPage(tabId) : null;
+      const index = entry.index > 0 ? entry.index
+        : (Number.isSafeInteger(bag.index) ? bag.index
+          : (stored !== null && Number.isSafeInteger(stored.index) ? stored.index : 1));
       return h('span', null, props.t('sideChat.chip', { index: index }));
     }
 
@@ -1430,6 +1518,7 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.locale.register(NS, { zh: zh, en: en }), 'dsh-annotate-sidechat: dictionaries');
         const t = ctx.locale.bind(NS);
         const chats = createSideChats(ctx);
+        sweepPages();
 
         // The overlay is inert until the conversation has mounted once, so a
         // cold page does not install listeners the host would never feed.
@@ -1487,6 +1576,15 @@ window.__ModuleLoader__.load({
               sideChatForTab: (tabId, parentId) => chats.forTab(tabId, parentId),
             }),
           }, SideChatTab));
+          // A closed page is remembered no longer; nothing would restore it.
+          const disposeClose = ctx.inject(['sidebarRight'], (scope) => {
+            const sidebar = scope.get('sidebarRight');
+            if (sidebar === undefined || sidebar === null || typeof sidebar.registerCloseHandler !== 'function') return;
+            const dispose = sidebar.registerCloseHandler(TAB_KIND, (sessionId, tab) => {
+              forgetPage(tab === undefined || tab === null ? '' : tab.id);
+            });
+            return () => { try { dispose(); } catch (error) { /* already released */ } };
+          });
           const disposeTitle = ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
             name: 'sidebar.right.pane.tab.title',
             key: TAB_ID,
@@ -1497,7 +1595,7 @@ window.__ModuleLoader__.load({
             name: 'sidebar.chat.conversation',
             locale: NS,
           }, SideChatPanel));
-          return () => { disposeChat(); disposeTitle(); disposeBody(); disposeType(); };
+          return () => { disposeChat(); disposeTitle(); disposeBody(); disposeClose(); disposeType(); };
         }), 'dsh-annotate-sidechat: side chat tab');
       },
     };
