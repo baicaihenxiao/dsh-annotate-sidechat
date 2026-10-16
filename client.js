@@ -497,12 +497,11 @@ window.__ModuleLoader__.load({
      * history contributes what is rendered.
      */
     function captureInherited(sessions, parentId) {
-      const empty = { columnClass: '', scrollClass: '', html: '', messages: 0, turns: 0, hidden: 0 };
+      const empty = { columnClass: '', html: '', messages: 0, turns: 0, hidden: 0 };
       const root = mainTranscript();
       const first = root === null ? null : root.querySelector('[data-chat-flow-key]');
       const column = first === null ? null : first.parentElement;
       if (root === null || column === null) return empty;
-      const scroll = column.parentElement;
       let boundary = null;
       for (const item of root.querySelectorAll('[data-chat-turn]')) {
         const turn = itemTurn(item);
@@ -534,7 +533,6 @@ window.__ModuleLoader__.load({
       }
       return {
         columnClass: typeof column.className === 'string' ? column.className : '',
-        scrollClass: scroll !== null && typeof scroll.className === 'string' ? scroll.className : '',
         html: kept.join(''),
         messages: items.length,
         turns: turns.size,
@@ -848,8 +846,13 @@ window.__ModuleLoader__.load({
    transcript takes two thirds (scrolling in the main chat's own container), the
    composer one. */
 .dsh-note-transcript {
-  flex: 2 1 0; min-height: 0; overflow: auto; display: flex; flex-direction: column;
-  padding: 4px 0; box-sizing: border-box;
+  position: relative; flex: 1 1 auto; min-height: 0; overflow: hidden;
+  display: flex; flex-direction: column;
+}
+/* The rows scroll inside the transcript, so nothing paints over the composer. */
+.dsh-note-transcriptRows {
+  flex: 1 1 auto; min-height: 0; overflow: auto;
+  display: flex; flex-direction: column; padding: 4px 0; box-sizing: border-box;
 }
 /* The captured rows carry the main chat's own classes; only their controls are
    dropped, since a clone has no handlers. */
@@ -860,7 +863,9 @@ window.__ModuleLoader__.load({
    (InputBar.module.css): same panel radius, input fill and elevation, the same
    content font size, and the same 34px round send button. */
 .dsh-note-composer {
-  flex: 1 1 0; min-height: 64px; box-sizing: border-box;
+  /* Content-sized and pinned under the transcript the way the host composer sits
+     under the chat: the history keeps the room the composer does not need. */
+  flex: 0 0 auto; max-height: 45%; overflow: auto; box-sizing: border-box;
   display: flex; flex-direction: column;
   padding: 4px 8px 6px;
   font-size: var(--dsh-content-font-size, 14px);
@@ -881,15 +886,15 @@ window.__ModuleLoader__.load({
 .dsh-note-input::placeholder { color: var(--dsw-alias-label-caption); }
 .dsh-note-input:focus { outline: none; }
 .dsh-note-composerRow {
-  flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 12px;
   padding: 2px 8px 6px; min-width: 0;
 }
 .dsh-note-sendBtn {
-  corner-shape: round;
-  display: grid; place-items: center; flex: none;
-  width: 34px; height: 34px; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  height: 32px; padding: 0 14px; cursor: pointer;
+  font: inherit; font-size: 13px; white-space: nowrap;
   color: #fff; background: var(--dsw-alias-button-info-fill);
-  border: none; border-radius: 999px;
+  border: none; border-radius: var(--dsw-radius-md, 8px);
 }
 .dsh-note-sendBtn:hover:not(:disabled) { background: var(--dsw-alias-button-info-hover); }
 .dsh-note-sendBtn:disabled { opacity: 0.4; cursor: default; }
@@ -1247,21 +1252,21 @@ window.__ModuleLoader__.load({
       // sent to: the same toolbar, the main chat's own rows inside the main
       // chat's own scroll container, and a composer card below them.
       const origin = entry.inherited;
-      const transcript = h('div', {
-        className: 'dsh-note-transcript' + (origin !== null && origin.scrollClass ? ' ' + origin.scrollClass : ''),
-      },
-        origin === null || origin.html === ''
-          ? h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritEmpty'))
-          : [
-              origin.hidden === 0
-                ? null
-                : h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritMore', { messages: origin.hidden })),
-              h('div', {
-                key: 'rows',
-                className: origin.columnClass || '',
-                dangerouslySetInnerHTML: { __html: origin.html },
-              }),
-            ],
+      const transcript = h('div', { className: 'dsh-note-transcript' },
+        h('div', { className: 'dsh-note-transcriptRows' },
+          origin === null || origin.html === ''
+            ? h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritEmpty'))
+            : [
+                origin.hidden === 0
+                  ? null
+                  : h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritMore', { messages: origin.hidden })),
+                h('div', {
+                  key: 'rows',
+                  className: origin.columnClass || '',
+                  dangerouslySetInnerHTML: { __html: origin.html },
+                }),
+              ],
+        ),
       );
       return h('div', { className: 'dsh-note-panel', [OURS]: '' },
         tools,
@@ -1285,11 +1290,13 @@ window.__ModuleLoader__.load({
               'aria-label': t('sideChat.send'),
               disabled: entry.busy || entry.draft.trim() === '',
               onClick: send,
-            }, h('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': true },
-              h('path', {
-                fill: 'currentColor',
-                d: 'M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z',
-              }))),
+            },
+              h('svg', { viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': true },
+                h('path', {
+                  fill: 'currentColor',
+                    d: 'M8.3125 0.980183C8.66767 1.0531 8.97902 1.20418 9.2627 1.43233C9.48724 1.61297 9.73029 1.85793 9.97949 2.10714L14.707 6.83468L13.293 8.24874L9 3.95577V15.0417H7V3.95577L2.70703 8.24874L1.29297 6.83468L6.02051 2.10714C6.26971 1.85793 6.51277 1.61297 6.7373 1.43233C6.97662 1.23986 7.28445 1.04402 7.6875 0.980183C7.8973 0.947006 8.1031 0.95516 8.3125 0.980183Z',
+                })),
+              t('sideChat.send')),
           ),
         ),
         entry.error === '' ? null : h('div', { className: 'dsh-note-error' }, entry.error),

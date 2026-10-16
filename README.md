@@ -39,10 +39,12 @@ send the located quote to the main chat or to a side chat**.
    opened that way starts with an empty composer you simply type into *and looks
    like a side chat that has already been sent to*: the same toolbar (with the
    inherited-turn count where the sent panel shows its fold toggle), a scrolling
-   transcript of the main chat's own rows, and — at the bottom, keeping one third
-   of the room — a composer card that copies the host composer (`InputBar`): its
-   panel radius, input fill and soft elevation, the conversation's font size and
-   line height, and its 34 px round send button with the same arrow glyph. What the transcript shows is what the new chat
+   transcript of the main chat's own rows, and — pinned under it, only as tall as
+   its own content — a composer card that copies the host composer (`InputBar`):
+   its panel radius, input fill and soft elevation, the conversation's font size
+   and line height, and its primary fill for a labelled rectangular send button
+   (arrow glyph + text), right-aligned in the card. The rows scroll inside the
+   transcript's own box, so the composer never covers the history. What the transcript shows is what the new chat
    is about to inherit — the main chat's completed turns, captured **once, when
    the side chat is created**, and rendered in the main chat's own markup
    (markdown, code, layout) rather than as a flattened summary.
@@ -143,17 +145,18 @@ rule (`sidechat-<n>-<title>`, with the directory fallback), side-chat numbering,
 zh/en key parity, the page-type registration (`multiple: true`, its guide entry,
 its tab chip), the pending panel for both a menu-opened and a guide-opened page
 (Reset left of New, each with its own glyph, class and tooltip — caution tone
-for Reset, brand tone for New — and a transcript that takes two thirds of the
-room above a one-third composer card), the primary hover fill, and the
-inherited-prefix collapse rule.
+for Reset, brand tone for New — and a transcript that takes the room above a
+content-sized composer card whose rows scroll inside it), the primary hover
+fill, and the inherited-prefix collapse rule.
 
 The DOM layer was additionally driven through headless Chrome with a scratch
 harness (not committed — it needs a local Chrome plus `puppeteer-core`): the
 two-item menu, a sidebar selection yielding none, a sidebar mousedown not being
 cancelled, `Send to main chat` appending after one blank line with a trailing
 newline and then focusing the composer, the new-chat panel carrying the same
-toolbar as a sent one with a third-height composer card under a scrolling
-transcript that is the main chat's own markup and counts only the completed turns
+toolbar as a sent one, its composer card sized to its content under a
+transcript that scrolls inside itself and is the main chat's own markup, its
+send button a rectangle pinned right, counting only the completed turns
 (`继承自主对话 N 轮`, the turn still being written excluded), that snapshot then
 holding still while the main chat grows (with a later side chat capturing the
 newer state instead), `Send to side chat` opening a page when

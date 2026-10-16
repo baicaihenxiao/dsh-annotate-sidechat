@@ -242,11 +242,17 @@ assert.match(
 );
 assert.ok(!source.includes('filter: brightness'), 'the primary hover no longer washes toward white');
 
-// The new-chat panel splits like a sent one: two thirds transcript, one third
-// composer, with the rows in the main chat's own markup.
-assert.match(source, /\.dsh-note-transcript\s*\{[^}]*flex:\s*2 1 0/, 'the transcript takes two thirds');
-assert.match(source, /\.dsh-note-transcript\s*\{[^}]*overflow:\s*auto/, 'the transcript scrolls');
-assert.match(source, /\.dsh-note-composer\s*\{[^}]*flex:\s*1 1 0/, 'the composer takes one third');
+// The transcript takes the room and scrolls inside itself; the composer hugs its
+// own content under it, so the history is never covered.
+assert.match(source, /\.dsh-note-transcript\s*\{[^}]*flex:\s*1 1 auto/, 'the transcript takes the room');
+assert.match(source, /\.dsh-note-transcript\s*\{[^}]*overflow:\s*hidden/, 'and clips its own box');
+assert.match(source, /\.dsh-note-transcriptRows\s*\{[^}]*overflow:\s*auto/, 'with the rows scrolling inside it');
+assert.match(source, /\.dsh-note-composer\s*\{[^}]*flex:\s*0 0 auto/, 'the composer hugs its content');
+assert.match(source, /\.dsh-note-composer\s*\{[^}]*max-height:\s*45%/, 'and never eats the panel');
+assert.match(source, /\.dsh-note-composerRow\s*\{[^}]*justify-content:\s*flex-end/,
+  'the send button sits at the right');
+assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*border-radius:\s*var\(--dsw-radius-md/,
+  'and is a rectangle, not a circle');
 assert.match(source, /\.dsh-note-toolNote\s*\{/, 'the toolbar can carry the inherited count');
 
 // The composer copies the host composer's card and its send button.
@@ -258,8 +264,7 @@ assert.match(source, /\.dsh-note-composer\s*\{[^}]*border-radius:\s*var\(--dsw-r
   'and the composer card radius');
 assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*background:\s*var\(--dsw-alias-button-info-fill\)/,
   'the send button uses the composer primary fill');
-assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*width:\s*34px; height:\s*34px/,
-  'and the composer primary size');
+assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*height:\s*32px/, 'and a composer-sized button');
 assert.ok(source.includes('M8.3125 0.980183C8.66767 1.0531'), 'with the composer arrow glyph');
 assert.ok(find(bareTree, (node) => node.type === 'svg') !== undefined, 'the panel renders the send icon');
 
