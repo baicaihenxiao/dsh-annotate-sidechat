@@ -48,12 +48,14 @@ window.__ModuleLoader__.load({
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': '隐藏继承内容',
       'sideChat.inherited': '继承自主对话 {turns} 轮',
-      'sideChat.new': '新建侧边对话',
+      'sideChat.new': '新建',
+      'sideChat.newHint': '再开一个侧边对话',
       'sideChat.pendingHint': '可直接输入，不必引用；发送后新建以 sidechat- 开头的对话',
       'sideChat.pendingPlaceholder': '输入内容…',
       'sideChat.pendingTitle': '新建侧边对话',
-      'sideChat.reset': '重置侧边对话',
+      'sideChat.reset': '重置',
       'sideChat.resetFailed': '重置失败：{message}',
+      'sideChat.resetHint': '归档当前对话，在本页重新开始',
       'sideChat.send': '发送',
       'sideChat.showInherited': '显示继承内容',
       'sideChat.empty': '无法打开侧边对话。',
@@ -69,12 +71,14 @@ window.__ModuleLoader__.load({
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': 'Hide inherited',
       'sideChat.inherited': '{turns} turns inherited from the main chat',
-      'sideChat.new': 'New side chat',
+      'sideChat.new': 'New',
+      'sideChat.newHint': 'Open another side chat',
       'sideChat.pendingHint': 'Type directly, quoting is optional; sending creates a chat titled sidechat-…',
       'sideChat.pendingPlaceholder': 'Type your message…',
       'sideChat.pendingTitle': 'New side chat',
-      'sideChat.reset': 'Reset side chat',
+      'sideChat.reset': 'Reset',
       'sideChat.resetFailed': 'Reset failed: {message}',
+      'sideChat.resetHint': 'Archive this chat and start over in this page',
       'sideChat.send': 'Send',
       'sideChat.showInherited': 'Show inherited',
       'sideChat.empty': 'The side chat could not be opened.',
@@ -299,6 +303,31 @@ window.__ModuleLoader__.load({
       return locationLine(snapshot) + '\n' + quoted;
     }
 
+    /** Whitespace-normalized text, for matching a message inside the transcript. */
+    function normalizeText(value) {
+      return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+    }
+
+    /** One flow item's turn number, when the host marked it. */
+    function itemTurn(item) {
+      const raw = item.getAttribute('data-chat-turn');
+      const turn = Number(raw);
+      return raw !== null && raw !== '' && Number.isSafeInteger(turn) && turn > 0 ? turn : undefined;
+    }
+
+    /**
+     * Where the side chat's own first message sits among the transcript's flow
+     * items, or -1 when it is not on the page. Everything before it is what the
+     * fork inherited from the main chat — the one boundary that needs no turn
+     * numbers, no event windows, and no host cooperation.
+     */
+    function ownMessageIndex(items, first) {
+      const needle = normalizeText(first).slice(0, 60);
+      if (needle === '') return -1;
+      return items.findIndex((item) => item.getAttribute('data-chat-flow-kind') === 'user'
+        && normalizeText(item.textContent).includes(needle));
+    }
+
     /** `draft` + one blank line + `text`; `text` alone when the draft is empty. */
     function appendDraft(draft, text) {
       return typeof draft === 'string' && draft.trim() !== '' ? draft + '\n\n' + text : text;
@@ -331,6 +360,7 @@ window.__ModuleLoader__.load({
         index: 0,
         childId: null,
         boundaryTurn: null,
+        first: '',
         draft: '',
         busy: false,
         error: '',
@@ -478,19 +508,56 @@ window.__ModuleLoader__.load({
         index: entry.index,
         ...entry.childId === null ? {} : { childId: entry.childId },
         ...entry.boundaryTurn === null ? {} : { boundaryTurn: entry.boundaryTurn },
+        ...entry.first === '' ? {} : { first: entry.first },
         ...entry.draft === '' ? {} : { draft: entry.draft },
       };
     }
 
-    /** Open a fresh side-chat page (`multiple: true` ⇒ one page per side chat). */
-    function openSideChatPage(ctx, entry) {
+    /**
+     * Open a fresh side-chat page (`multiple: true` ⇒ one page per side chat).
+     *
+     * `openTab` throws while the on-screen session's sidebar surface is not
+     * mounted yet (`sidebarRight: no session surface is mounted`) — right after
+     * a session switch, for instance. The seat renders a moment later, so the
+     * open is retried; a failed attempt opened nothing, so retrying cannot
+     * duplicate the page.
+     * @returns whether a page was placed, once the retries are spent.
+     */
+    function openSideChatPage(ctx, entry, attempts) {
       const sidebar = sidebarRightOf(ctx);
-      if (sidebar === undefined) return false;
+      if (sidebar === undefined) return Promise.resolve(false);
       const cwd = currentCwd(ctx, entry.parentId);
-      sidebar.openTab(TAB_KIND, {
-        params: { ...sideChatParams(entry), ...cwd === undefined ? {} : { cwd: cwd } },
+      const params = { ...sideChatParams(entry), ...cwd === undefined ? {} : { cwd: cwd } };
+      const total = typeof attempts === 'number' ? attempts : 10;
+      return new Promise((resolve) => {
+        const attempt = (left) => {
+          try {
+            sidebar.openTab(TAB_KIND, { params: params });
+            resolve(true);
+          } catch (error) {
+            if (left <= 0) { resolve(false); return; }
+            setTimeout(() => { attempt(left - 1); }, 150);
+          }
+        };
+        attempt(total);
       });
-      return true;
+    }
+
+    /**
+     * Bring one side chat into view: the column expands when it was collapsed,
+     * and the page is focused (raising it when it floats). Without this a quote
+     * aimed at a tab the user cannot see looks like nothing happened.
+     */
+    function revealSideChat(ctx, chats, entry) {
+      const sidebar = sidebarRightOf(ctx);
+      if (sidebar === undefined) return;
+      try {
+        if (typeof sidebar.isExpanded === 'function' && typeof sidebar.toggleExpanded === 'function'
+          && sidebar.isExpanded() === false) sidebar.toggleExpanded();
+      } catch (error) { /* no surface to expand yet */ }
+      const tabId = chats.tabOfId(entry.id);
+      if (tabId === undefined) return;
+      try { sidebar.focus(tabId); } catch (error) { /* the page is gone */ }
     }
 
     /**
@@ -503,10 +570,12 @@ window.__ModuleLoader__.load({
       if (sidebar === undefined || tabId === undefined) return;
       const entry = chats.get(id);
       const cwd = currentCwd(ctx, entry.parentId);
-      sidebar.openTab(TAB_KIND, {
-        replaceTab: tabId,
-        params: { ...sideChatParams(entry), ...cwd === undefined ? {} : { cwd: cwd } },
-      });
+      try {
+        sidebar.openTab(TAB_KIND, {
+          replaceTab: tabId,
+          params: { ...sideChatParams(entry), ...cwd === undefined ? {} : { cwd: cwd } },
+        });
+      } catch (error) { /* the layout is gone; the page keeps its previous params */ }
     }
 
     /** The side chat the right sidebar currently shows, when there is one. */
@@ -570,7 +639,7 @@ window.__ModuleLoader__.load({
       try {
         const childId = await createSideChat(ctx, entry.parentId, text, index);
         const boundaryTurn = inheritedTurnBoundary(ctx, entry.parentId, childId);
-        chats.patch(id, { childId: childId, boundaryTurn: boundaryTurn, draft: '', busy: false, error: '' });
+        chats.patch(id, { childId: childId, boundaryTurn: boundaryTurn, first: text, draft: '', busy: false, error: '' });
         // Record the child (and the boundary) in the page's own params.
         refreshSideChatPage(ctx, chats, id);
       } catch (error) {
@@ -599,6 +668,7 @@ window.__ModuleLoader__.load({
         index: nextSideChatIndex(ctx, chats, entry.parentId),
         childId: null,
         boundaryTurn: null,
+        first: '',
         draft: '',
         busy: false,
         error: '',
@@ -662,6 +732,17 @@ window.__ModuleLoader__.load({
   border: 1px solid var(--dsw-alias-border-l1);
 }
 .dsh-note-tool:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.dsh-note-toolGlyph { font-size: 12px; line-height: 1; opacity: 0.85; }
+.dsh-note-tool-primary {
+  color: var(--dsw-alias-brand-primary);
+  border-color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);
+}
+.dsh-note-tool-primary:hover {
+  color: var(--dsw-alias-brand-primary);
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent);
+}
+.dsh-note-tool-toggle { margin-left: auto; }
 .dsh-note-tool[data-active] { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
 .dsh-note-sideBody { flex: 1 1 auto; min-height: 0; display: flex; }
 /* The fork's inherited prefix, folded away until the toolbar is asked to show it. */
@@ -771,9 +852,10 @@ window.__ModuleLoader__.load({
 
       /**
        * Send to side chat: the quote joins the side chat the sidebar shows, and a
-       * new side chat is opened when it shows none.
+       * new side chat is opened when it shows none. Either way the page is
+       * brought into view, so the action is never invisible.
        */
-      function toSide(selection) {
+      async function toSide(selection) {
         const parentId = currentSessionId(ctx);
         if (parentId === '') { store.set({ pending: selection, error: t('sideChat.empty') }); return; }
         const text = draftQuote(selection);
@@ -781,34 +863,37 @@ window.__ModuleLoader__.load({
         const active = activeId === undefined ? undefined : chats.get(activeId);
         const target = active !== undefined && active.id !== '' && active.parentId === parentId ? active : undefined;
         clearSelection();
+        store.set({ pending: null, error: '' });
         if (target !== undefined && target.childId !== null) {
           // The chat exists: the quote joins that conversation's composer draft,
           // and the composer takes the focus once the panel is up.
+          revealSideChat(ctx, chats, target);
           void writeDraft(ctx, target.childId, text, 10);
-        } else if (target !== undefined) {
+          return;
+        }
+        if (target !== undefined) {
           // The open page is still pending; the bumped token asks it to take the
           // focus once it has re-rendered with the quote.
+          revealSideChat(ctx, chats, target);
           chats.patch(target.id, {
             draft: appendDraft(target.draft, text),
             error: '',
             focusToken: target.focusToken + 1,
           });
-        } else {
-          const created = chats.create(parentId);
-          chats.patch(created.id, { draft: text });
-          if (!openSideChatPage(ctx, chats.get(created.id))) {
-            store.set({ pending: selection, error: t('sideChat.empty') });
-            return;
-          }
+          return;
         }
-        store.set({ pending: null, error: '' });
+        const created = chats.create(parentId);
+        chats.patch(created.id, { draft: text });
+        if (!(await openSideChatPage(ctx, chats.get(created.id)))) {
+          store.set({ pending: selection, error: t('sideChat.empty') });
+        }
       }
 
       reactRoot.render(h(Overlay, {
         t: t,
         store: store,
         toMain: (selection) => { void toMain(selection); },
-        toSide: (selection) => { toSide(selection); },
+        toSide: (selection) => { void toSide(selection); },
       }));
 
       document.addEventListener('selectionchange', schedule);
@@ -892,6 +977,7 @@ window.__ModuleLoader__.load({
         index: Number.isSafeInteger(bag.index) ? bag.index : 1,
         childId: typeof bag.childId === 'string' ? bag.childId : null,
         boundaryTurn: Number.isSafeInteger(bag.boundaryTurn) ? bag.boundaryTurn : null,
+        first: typeof bag.first === 'string' ? bag.first : '',
         draft: typeof bag.draft === 'string' ? bag.draft : '',
       });
       props.chats.bindTab(tabId, id);
@@ -901,6 +987,7 @@ window.__ModuleLoader__.load({
       );
       const childId = entry.childId;
       const boundaryTurn = entry.boundaryTurn;
+      const first = entry.first;
       const cwd = typeof bag.cwd === 'string' ? bag.cwd : undefined;
       const [reference, setReference] = React.useState(null);
       const [failed, setFailed] = React.useState(false);
@@ -936,21 +1023,28 @@ window.__ModuleLoader__.load({
       // history pages arrive. `inherited` is what the toolbar toggles.
       React.useEffect(() => {
         const node = bodyRef.current;
-        if (node === null || typeof boundaryTurn !== 'number') { setInherited(0); return undefined; }
+        if (node === null) { setInherited(0); return undefined; }
         let frame = null;
         const mark = () => {
           frame = null;
+          const items = Array.from(node.querySelectorAll('[data-chat-flow-key]'));
+          const cut = ownMessageIndex(items, first);
+          const byTurn = cut < 0 && typeof boundaryTurn === 'number';
           const turns = new Set();
-          for (const item of node.querySelectorAll('[data-chat-turn]')) {
-            const turn = Number(item.getAttribute('data-chat-turn'));
-            if (Number.isSafeInteger(turn) && turn <= boundaryTurn) {
+          let marked = 0;
+          for (let index = 0; index < items.length; index += 1) {
+            const item = items[index];
+            const turn = itemTurn(item);
+            const inherited = cut > 0 ? index < cut : byTurn && turn !== undefined && turn <= boundaryTurn;
+            if (inherited) {
               item.setAttribute(INHERITED, '');
-              turns.add(turn);
+              if (turn !== undefined) turns.add(turn);
+              marked += 1;
             } else {
               item.removeAttribute(INHERITED);
             }
           }
-          setInherited(turns.size);
+          setInherited(turns.size > 0 ? turns.size : marked);
         };
         mark();
         const observer = new MutationObserver(() => {
@@ -962,24 +1056,29 @@ window.__ModuleLoader__.load({
           observer.disconnect();
           if (frame !== null) cancelAnimationFrame(frame);
         };
-      }, [boundaryTurn, childId]);
+      }, [boundaryTurn, childId, first]);
 
+      // Reset (destructive, secondary) sits left of New (additive, brand-tinted):
+      // same size and shape, different glyph, colour and tooltip.
       const tools = h('div', { className: 'dsh-note-tools' },
         h('button', {
           className: 'dsh-note-tool', type: 'button',
-          onClick: () => props.newSideChat(id),
-        }, t('sideChat.new')),
-        h('button', {
-          className: 'dsh-note-tool', type: 'button',
+          title: t('sideChat.resetHint'),
           onClick: () => { void props.resetSideChat(id); },
-        }, t('sideChat.reset')),
+        }, h('span', { className: 'dsh-note-toolGlyph' }, '↺'), t('sideChat.reset')),
+        h('button', {
+          className: 'dsh-note-tool dsh-note-tool-primary', type: 'button',
+          title: t('sideChat.newHint'),
+          onClick: () => props.newSideChat(id),
+        }, h('span', { className: 'dsh-note-toolGlyph' }, '＋'), t('sideChat.new')),
         typeof childId === 'string' && childId !== '' && inherited > 0
           ? h('button', {
-              className: 'dsh-note-tool', type: 'button',
+              className: 'dsh-note-tool dsh-note-tool-toggle', type: 'button',
               'data-active': entry.collapsed ? undefined : true,
+              title: entry.collapsed ? t('sideChat.showInherited') : t('sideChat.hideInherited'),
               onClick: () => props.chats.patch(id, { collapsed: !entry.collapsed }),
-            }, (entry.collapsed ? t('sideChat.showInherited') : t('sideChat.hideInherited'))
-              + ' · ' + t('sideChat.inherited', { turns: inherited }))
+            }, h('span', { className: 'dsh-note-toolGlyph' }, entry.collapsed ? '▸' : '▾'),
+              t('sideChat.inherited', { turns: inherited }))
           : null,
       );
 

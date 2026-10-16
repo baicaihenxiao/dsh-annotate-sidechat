@@ -42,15 +42,22 @@ send the located quote to the main chat or to a side chat**.
    Sending forks the main chat (`sessions.fork`), titles the child
    `sidechat-<n>-<main chat title>`, and sends the draft as its first message.
 7. **The inherited transcript is folded away.** A fork carries a copy of the main
-   chat's completed turns; those turns are collapsed behind a toolbar button
-   (`显示继承内容 · 继承自主对话 N 轮`) and only shown when you ask for them.
-   Each side chat page has its own toolbar:
+   chat; everything in the panel *before this side chat's own first message* is
+   collapsed and only shown when you ask for it. (When that message is not on the
+   page — an older side chat, say — the boundary the fork's event windows give is
+   used instead.) Each side chat page has its own toolbar, left to right:
 
    | Button | What it does |
    |---|---|
-   | `New side chat` | Opens another side-chat page for the same main chat (several can be open at once) |
-   | `Reset side chat` | Archives the current chat and returns this page to an empty composer; the next send forks a fresh chat |
-   | `显示/隐藏继承内容` | Shows or hides the fork's inherited turns |
+   | `↺ Reset` | Archives the current chat and returns this page to an empty composer; the next send forks a fresh chat (plain secondary button, tooltip explains it) |
+   | `＋ New` | Opens another side-chat page for the same main chat (several can be open at once); brand-tinted, so the additive action is told apart from the destructive one at a glance |
+   | `▸/▾ 继承自主对话 N 轮` | Shows or hides the fork's inherited turns; pinned to the right, tooltip names the action |
+
+   Either action also *reveals* the page it targets: a collapsed column expands
+   and the page is focused, so sending a quote is never invisible. When the
+   sidebar cannot place a page yet (its surface mounts a moment after a session
+   switch) the open is retried for ~1.5 s, and a sidebar that never mounts
+   reports it in the menu instead of doing nothing.
 
 The side-chat panel is not a reimplementation: once the child exists, the panel
 declares the host's own `sidebar.chat.conversation` child slot and wraps it in
@@ -101,9 +108,10 @@ client-only changes need no `dsh web` restart.
 | `[data-conversation-session]` | Reading the session id when the list snapshot has no `current` |
 | `[data-sidebar-right-*]` | Keeping sidebar selections out of the quote menu |
 | `ctx.sessions.fork` / `retain` / `binding.session` | Creating the child on send, renaming it, sending its first prompt |
+| `[data-chat-flow-key]` / `[data-chat-flow-kind="user"]` | Cutting the transcript at this side chat's own first message (the turn boundary from the event windows is the fallback) |
 | `ctx.sessions.binding().eventSource` | Telling which turns a fresh fork inherited (the child's window ∩ its parent's) |
 | `ctx.sessions.list` | Numbering side chats and reading the main chat's title |
-| `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` | Opening a page per side chat, rewriting its params in place, and finding the open one |
+| `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` / `isExpanded` / `focus` | Opening a page per side chat (retried while the surface mounts), rewriting its params in place, finding the open one, and bringing it into view |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
 | `sidebar.chat.conversation` | Rendering the shipped conversation inside the panel |
 | `ctx.get('uiWorkspace').archiveSession` | `Reset side chat` archiving the chat it replaces |
@@ -122,8 +130,9 @@ node check.mjs
 Covers the bundle registration, the quote and composer-draft seams, the naming
 rule (`sidechat-<n>-<title>`, with the directory fallback), side-chat numbering,
 zh/en key parity, the page-type registration (`multiple: true`, its guide entry,
-its tab chip), the pending panel for both a menu-opened and a guide-opened page,
-the primary hover fill, and the inherited-prefix collapse rule.
+its tab chip), the pending panel for both a menu-opened and a guide-opened page
+(Reset left of New, each with its own glyph, class and tooltip), the primary
+hover fill, and the inherited-prefix collapse rule.
 
 The DOM layer was additionally driven through headless Chrome with a scratch
 harness (not committed — it needs a local Chrome plus `puppeteer-core`): the
@@ -131,14 +140,16 @@ two-item menu, a sidebar selection yielding none, a sidebar mousedown not being
 cancelled, `Send to main chat` appending after one blank line with a trailing
 newline and then focusing the composer, `Send to side chat` opening a page when
 none is up, sending that page forking once and titling the child
-`sidechat-1-Main chat title`, the inherited turns being marked and folded with a
-working toggle, a further quote routing into the open side chat's composer
-instead of opening another page, `Reset side chat` archiving the child and
-returning the page to a focused empty composer, and `New side chat` opening a
-second page with its own id and number. The real host's fork/rename/prompt and
-archive RPCs and the live sidebar markers were read from the host sources, not
-exercised against a running GUI — a manual pass on the real page is still worth
-doing.
+`sidechat-1-Main chat title`, the inherited items being marked and folded (both
+by position and by the turn fallback) with a working toggle, a further quote
+routing into the open side chat's composer instead of opening another page and
+revealing it (expand + focus), `Reset side chat` archiving the child and
+returning the page to a focused empty composer, `New side chat` opening a second
+page with its own id and number, an open refused once being retried to exactly
+one page, and a sidebar that never mounts surfacing an error in the menu. The
+real host's fork/rename/prompt and archive RPCs and the live sidebar markers
+were read from the host sources, not exercised against a running GUI — a manual
+pass on the real page is still worth doing.
 
 ## License
 

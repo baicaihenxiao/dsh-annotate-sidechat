@@ -188,9 +188,15 @@ const textarea = find(tree, (node) => node.type === 'textarea');
 assert.equal(textarea.props.value, 'Quoted from the assistant', 'the panel restores the quoted draft');
 assert.equal(textarea.props.disabled, false, 'the empty composer is typable');
 assert.equal(typeof textarea.props.ref, 'object', 'the pending composer is ref-wired for focus');
-const toolLabels = find(tree, (node) => node.type === 'div' && node.props.className === 'dsh-note-tools')
-  .children.filter(Boolean).map((button) => button.children[0]);
-assert.deepEqual(toolLabels, ['sideChat.new', 'sideChat.reset'], 'the toolbar offers new and reset');
+const toolButtons = find(tree, (node) => node.type === 'div' && node.props.className === 'dsh-note-tools')
+  .children.filter(Boolean);
+assert.deepEqual(toolButtons.map((button) => button.children[1]), ['sideChat.reset', 'sideChat.new'],
+  'reset sits left of new');
+assert.deepEqual(toolButtons.map((button) => button.children[0].children[0]), ['↺', '＋'],
+  'each button carries its own glyph');
+assert.equal(toolButtons[0].props.className, 'dsh-note-tool', 'reset stays the plain secondary button');
+assert.ok(toolButtons[1].props.className.includes('dsh-note-tool-primary'), 'new is the brand-tinted one');
+assert.ok(toolButtons[0].props.title !== toolButtons[1].props.title, 'the two buttons explain themselves differently');
 
 // ── a page opened from the guide mints its own side chat ───────────────────
 const bareTree = panelOf({}, 'pane-session', 'tab-2');
