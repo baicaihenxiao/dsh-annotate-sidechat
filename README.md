@@ -120,6 +120,13 @@ created with and the reply, and the next quote waiting in its composer.
    located quote to that side chat's own composer — the same format, blank
    lines and focus as the other two. A page that has not been sent yet, and any
    other sidebar chat, offers no menu.
+9. **Archived or deleted elsewhere.** A side chat is also an ordinary session,
+   so it can be archived or deleted from the session list — after opening it
+   in the main column, say. Its page is then cleaned up: it closes as soon as
+   its main chat is on screen (until then it shows only a note and holds
+   nothing of the gone chat), its record is forgotten, and Send to side chat
+   no longer aims at it. Reset's own archive is not mistaken for this; that
+   page starts over as before.
 
 The side-chat panel is not a reimplementation: once the child exists, the panel
 declares its own `annotateSidechat.conversation` child slot, wraps it in the
@@ -261,7 +268,8 @@ Points worth knowing:
 | `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` / `isExpanded` / `focus` / `registerCloseHandler` | Opening a page per side chat (retried while the surface mounts), rewriting its params in place, finding the open one, bringing it into view, and forgetting a closed page |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
 | `annotateSidechat.conversation` (own child slot) + `conversation.content` factory | Rendering the shipped conversation inside the panel |
-| `ctx.sidebarRight.openTabs` | Dropping the per-tab records of pages no saved layout holds |
+| `ctx.sidebarRight.openTabs` + `close` | Dropping the per-tab records of pages no saved layout holds, and closing the on-screen chat's pages of side chats archived or deleted elsewhere |
+| `ctx.get('workspaces').list` (`archivedSessionIds`) + `ctx.sessions.list` (`ids`, `phase`) | Telling a side chat archived or deleted elsewhere — only once each list is ready |
 | `ctx.get('uiWorkspace').archiveSession` | `Reset side chat` archiving the chat it replaces, and a failed send archiving its fork |
 | `ctx.conversation.input.for(scope).setDraft` / `focus` | Writing the quote into a composer and handing it the keyboard |
 
@@ -286,9 +294,14 @@ fill, the inherited-prefix collapse rule, a fold boundary that an inherited
 quote of the same spot cannot capture, where a selected reply quotes to (the
 main chat, a sent side chat, or nowhere for a pending page's copied rows, other
 sidebar chats and replies still being written), and the one-item `Send to chat`
-menu that hands its quote to that side chat, and the notice for a quote newer
+menu that hands its quote to that side chat, the notice for a quote newer
 than the open side chat's fork point (which turns count as newer, its Cancel
-and new-side-chat answers, and that a selection event never replaces it).
+and new-side-chat answers, and that a selection event never replaces it),
+a page holding its side chat until it closes, and the cleanup of side chats
+archived or deleted elsewhere (archived or missing only once a list is ready,
+the on-screen chat's pages closing — from memory or their record — another
+chat's page letting its child go, Reset left alone, and a gone page rendering
+nothing of its chat).
 
 With a local `dsh` install the check also replays every slot registration this
 plugin makes against the host's real `SlotCore`

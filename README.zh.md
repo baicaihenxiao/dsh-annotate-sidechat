@@ -85,6 +85,10 @@
 8. **在侧边对话里引用。** 在已发送的侧边对话里划选某条回复的文字，会弹出只有一项的菜单
    `发送到此对话`，把带位置的引用追加到该侧边对话自己的输入框 —— 格式、空行和聚焦方式与另外两项相同。
    尚未发送的页面，以及其他侧栏聊天，都不会弹出菜单。
+9. **在别处归档或删除。** 侧边对话同时也是一个普通会话，可以在会话列表里被归档或删除 ——
+   比如在主对话区打开它之后。此时它的页面会被清理：一旦它的主对话显示在屏幕上就关闭
+   （在那之前只显示一句说明，也不再持有这个已消失的对话），它的记录被删除，
+   `发送到侧边对话` 也不会再把它当作目标。`重置` 自己的归档不会被误认为这种情况，该页仍照常重新开始。
 
 侧边对话面板不是重新实现的：子对话创建后，面板声明自己的 `annotateSidechat.conversation`
 子 slot，用框架的 `SessionProvider` 包起来，并在其中渲染宿主的 `conversation.content` factory ——
@@ -201,7 +205,8 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 | `ctx.sidebarRight.openTab`（`replaceTab`）+ `active` / `mounted` / `isExpanded` / `focus` / `registerCloseHandler` | 每个侧边对话开一页（界面挂载期间重试）、原地改写页面参数、找到当前打开的那页、让它显示出来，以及忘掉已关闭的页面 |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | 页面类型、页面主体，以及标明每个侧边对话的标签名 |
 | `annotateSidechat.conversation`（自有子 slot）+ `conversation.content` factory | 在面板里渲染 DSH 自带的对话界面 |
-| `ctx.sidebarRight.openTabs` | 删除已没有任何保存布局包含的页面记录 |
+| `ctx.sidebarRight.openTabs` + `close` | 删除已没有任何保存布局包含的页面记录，并关闭当前屏幕上对话里那些已在别处归档或删除的侧边对话页面 |
+| `ctx.get('workspaces').list`（`archivedSessionIds`）+ `ctx.sessions.list`（`ids`、`phase`） | 判断侧边对话是否已在别处归档或删除 —— 只在两份列表都已就绪时判断 |
 | `ctx.get('uiWorkspace').archiveSession` | `重置` 时归档被替换的对话，发送失败时归档那次 fork |
 | `ctx.conversation.input.for(scope).setDraft` / `focus` | 把引用写进输入框并交出键盘 |
 
@@ -221,8 +226,10 @@ node check.mjs
 下方是按内容定高的输入卡片）、主按钮悬停底色、继承前缀的折叠规则、不会被继承来的同位置引用
 抢走的折叠边界、选中的回复引用到哪里（主对话、已发送的侧边对话；未发送页面里复制来的条目、
 其他侧栏聊天和仍在生成的回复则不出菜单）、把引用交给该侧边对话的单项 `发送到此对话` 菜单，
-以及引用晚于当前侧边对话 fork 点时弹出的说明（哪些轮次算晚于 fork 点、取消与发送到新侧边对话
-两个选项，以及选区事件不会把它冲掉）。
+引用晚于当前侧边对话 fork 点时弹出的说明（哪些轮次算晚于 fork 点、取消与发送到新侧边对话
+两个选项，以及选区事件不会把它冲掉）、页面在关闭前一直持有它的侧边对话，以及对在别处归档或
+删除的侧边对话的清理（列表就绪后才判断归档或缺失、当前屏幕上对话的页面关闭 —— 无论来自内存
+还是记录 —— 其他对话的页面先放开子对话、重置不受影响，以及已消失的页面不渲染该对话的任何内容）。
 
 本地装有 `dsh` 时，检查还会把本插件的每一次 slot 注册放到宿主真实的 `SlotCore`
 （`@deepseek-ai/dsh-client-ui-slots`，在 `dsh` 可执行文件旁边找到）上重放，并与内置 subagent

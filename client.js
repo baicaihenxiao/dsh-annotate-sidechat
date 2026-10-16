@@ -68,6 +68,7 @@ window.__ModuleLoader__.load({
       'sideChat.showInherited': '显示继承内容',
       'sideChat.staleQuote': '这段内容来自主对话第 {turn} 轮，而当前的 sidechat-{index} 是在第 {fork} 轮 fork 的，看不到这一轮及其上下文。要改为发送到一个新的侧边对话吗？新对话会从主对话最新的轮次 fork。',
       'sideChat.empty': '无法打开侧边对话。',
+      'sideChat.gone': '这个侧边对话已在别处归档或删除，本页随即关闭。',
       'sideChat.working': '正在创建侧边对话…',
       'tab.title': '侧边对话',
     };
@@ -96,6 +97,7 @@ window.__ModuleLoader__.load({
       'sideChat.showInherited': 'Show inherited',
       'sideChat.staleQuote': 'This passage is from turn {turn} of the main chat, but sidechat-{index} was forked at turn {fork}, so it has neither that turn nor its context. Send it to a new side chat instead? The new one forks from the main chat\'s latest turn.',
       'sideChat.empty': 'The side chat could not be opened.',
+      'sideChat.gone': 'This side chat was archived or deleted elsewhere; this page closes.',
       'sideChat.working': 'Creating the side chat…',
       'tab.title': 'Side chat',
     };
@@ -476,6 +478,8 @@ window.__ModuleLoader__.load({
       const notify = () => { for (const fn of Array.from(listeners)) fn(); };
       const writing = new Map();
       const held = new Map();
+      /** Children Reset is archiving itself: their page stays and starts over. */
+      const resetting = new Set();
       /** Keep this page's record current; typing collapses into one write. */
       const remember = (id) => {
         if (idsByTab.get(id) === undefined) return;
@@ -580,14 +584,18 @@ window.__ModuleLoader__.load({
         /**
          * Let a child go once no page shows it — on the next tick, so a panel
          * still rendering it never reads a released binding, and a page that
-         * replaced itself in place has bound its new tab by then.
+         * replaced itself in place has bound its new tab by then. `gone` lets
+         * it go even so: an archived or deleted child, whose page renders
+         * none of it any more.
          */
-        drop(childId) {
+        drop(childId, gone) {
           setTimeout(() => {
             const reference = held.get(childId);
             if (reference === undefined) return;
-            for (const entry of entries.values()) {
-              if (entry.childId === childId && idsByTab.has(entry.id)) return;
+            if (gone !== true) {
+              for (const entry of entries.values()) {
+                if (entry.childId === childId && idsByTab.has(entry.id)) return;
+              }
             }
             held.delete(childId);
             try { reference.release(); } catch (error) { /* already released */ }
@@ -599,8 +607,83 @@ window.__ModuleLoader__.load({
           }
           held.clear();
         },
+        /** Mark a child Reset is archiving, so it is not taken for archived elsewhere. */
+        setResetting(childId, on) {
+          if (on) resetting.add(childId);
+          else resetting.delete(childId);
+        },
+        isResetting(childId) {
+          return resetting.has(childId);
+        },
       };
       return store;
+    }
+
+    /**
+     * Whether a side chat's child left the user's chats elsewhere: archived (it
+     * cannot be opened until restored) or deleted (no longer in the Host's
+     * complete session list). False while either list is still arriving, so a
+     * cold page never takes itself for gone.
+     */
+    function childGone(ctx, childId) {
+      if (typeof childId !== 'string' || childId === '') return false;
+      try {
+        const workspaces = ctx.get('workspaces');
+        const registry = workspaces === undefined || workspaces === null ? undefined : workspaces.list.getSnapshot();
+        if (registry !== undefined && registry.phase === 'ready' && registry.archivedSessionIds.includes(childId)) return true;
+      } catch (error) { /* no archive set to read */ }
+      try {
+        const list = ctx.sessions.list.getSnapshot();
+        if (list.phase === 'ready' && !list.ids.includes(childId)) return true;
+      } catch (error) { /* no session list to read */ }
+      return false;
+    }
+
+    /** Subscribe to both lists `childGone` reads. */
+    function subscribeChildLists(ctx, fn) {
+      const off = [];
+      try { off.push(ctx.sessions.list.subscribe(fn)); } catch (error) { /* no session list */ }
+      try {
+        const workspaces = ctx.get('workspaces');
+        if (workspaces !== undefined && workspaces !== null) off.push(workspaces.list.subscribe(fn));
+      } catch (error) { /* no archive set */ }
+      return () => { for (const dispose of off) dispose(); };
+    }
+
+    /** The child a side-chat page shows: from the page in hand, else from its kept record. */
+    function childOfTab(chats, tabId) {
+      const id = chats.idOfTab(tabId);
+      if (id !== undefined) return chats.get(id).childId;
+      const record = readPage(tabId);
+      return record !== null && typeof record.childId === 'string' && record.childId !== '' ? record.childId : null;
+    }
+
+    /**
+     * Clean up after side chats archived or deleted elsewhere — from the
+     * session list, or while the user had one open in the main column. A page
+     * of the chat on screen closes (its close handler forgets its record and
+     * lets the child go); a page of another chat can only close once that chat
+     * is back on screen, so until then it just lets the child go.
+     */
+    function closeGoneSideChats(ctx, chats) {
+      const sidebar = sidebarRightOf(ctx);
+      if (sidebar === undefined || sidebar.openTabs === undefined || sidebar.mounted === undefined) return;
+      let onScreen;
+      let tabs;
+      try {
+        onScreen = sidebar.mounted.getSnapshot();
+        tabs = sidebar.openTabs.getSnapshot();
+      } catch (error) { return; }
+      for (const tab of tabs) {
+        if (tab.kind !== TAB_KIND) continue;
+        const childId = childOfTab(chats, tab.tabId);
+        if (childId === null || chats.isResetting(childId) || !childGone(ctx, childId)) continue;
+        if (tab.sessionId === onScreen) {
+          try { sidebar.close(tab.tabId); } catch (error) { /* already closed */ }
+        } else {
+          chats.drop(childId, true);
+        }
+      }
     }
 
     /** `sidechat-<n>-<main chat title>`; the suffix falls back to the directory name. */
@@ -1039,9 +1122,12 @@ window.__ModuleLoader__.load({
       const entry = chats.get(id);
       if (entry.id === '') return;
       if (entry.childId !== null) {
+        // This archive is the page's own: it starts over instead of closing.
+        chats.setResetting(entry.childId, true);
         try {
           await archiveSession(ctx, entry.childId);
         } catch (error) {
+          chats.setResetting(entry.childId, false);
           chats.patch(id, { error: t('sideChat.resetFailed', { message: String((error && error.message) || error) }) });
           return;
         }
@@ -1059,7 +1145,10 @@ window.__ModuleLoader__.load({
         collapsed: true,
         focusToken: entry.focusToken + 1,
       });
-      if (entry.childId !== null) chats.drop(entry.childId);
+      if (entry.childId !== null) {
+        chats.setResetting(entry.childId, false);
+        chats.drop(entry.childId);
+      }
       refreshSideChatPage(ctx, chats, id);
     }
 
@@ -1311,7 +1400,9 @@ window.__ModuleLoader__.load({
         const text = draftQuote(selection);
         const activeId = activeSideChatId(ctx, chats);
         const active = activeId === undefined ? undefined : chats.get(activeId);
-        const target = active !== undefined && active.id !== '' && active.parentId === parentId ? active : undefined;
+        // A side chat archived or deleted elsewhere is no destination: it closes.
+        const target = active !== undefined && active.id !== '' && active.parentId === parentId
+          && !childGone(ctx, active.childId) ? active : undefined;
         // The open side chat was forked before the quoted turn: say so, and let
         // the user pick a new side chat or nothing at all.
         const notice = target === undefined ? null : staleQuote(selection, target);
@@ -1514,6 +1605,10 @@ window.__ModuleLoader__.load({
       );
       const childId = entry.childId;
       const hasChild = typeof childId === 'string' && childId !== '';
+      // A child archived or deleted elsewhere is never rendered or held again:
+      // its page closes once its chat is on screen and says so until then.
+      const gone = React.useSyncExternalStore(props.subscribeChildLists,
+        () => hasChild && props.childGone(childId));
       // A pending page belongs to the chat its pane shows: if the column moved to
       // another session while this page was up, take that session's history
       // rather than leaving the page bound to the one it was born in.
@@ -1540,14 +1635,14 @@ window.__ModuleLoader__.load({
       // The reference outlives this body: the page holds it until it closes or
       // resets, so a session switch never drops the side chat's last one.
       React.useEffect(() => {
-        if (typeof childId !== 'string' || childId === '') { setReference(null); setFailed(false); return; }
+        if (typeof childId !== 'string' || childId === '' || gone) { setReference(null); setFailed(false); return; }
         try {
           setReference(props.chats.hold(childId));
           setFailed(false);
         } catch (error) {
           setFailed(true);
         }
-      }, [childId]);
+      }, [childId, gone]);
 
       // The inherited history opens at its end, the way a sent chat's transcript
       // does: the newest turns sit right above the composer instead of the page
@@ -1642,6 +1737,7 @@ window.__ModuleLoader__.load({
       );
 
       if (hasChild) {
+        if (gone) return h('div', { className: 'dsh-note-panel', [OURS]: '' }, h('div', { className: 'dsh-note-empty' }, t('sideChat.gone')));
         if (failed) return h('div', { className: 'dsh-note-panel', [OURS]: '' }, tools, h('div', null, t('sideChat.empty')));
         if (reference === null) return h('div', { className: 'dsh-note-panel', [OURS]: '' }, tools, h('div', { style: { opacity: 0.6 } }, t('sideChat.working')));
         // `reference` IS the scope target (`SlotScopeTargetMap.session`); the
@@ -1768,6 +1864,8 @@ window.__ModuleLoader__.load({
         ownMessageIndex: ownMessageIndex,
         stepOf: stepOf,
         staleQuote: staleQuote,
+        childGone: childGone,
+        closeGoneSideChats: closeGoneSideChats,
         Overlay: Overlay,
         selectionText: selectionText,
         capture: capture,
@@ -1779,6 +1877,25 @@ window.__ModuleLoader__.load({
         const t = ctx.locale.bind(NS);
         const chats = createSideChats(ctx);
         ctx.effect(() => () => chats.dropAll(), 'dsh-annotate-sidechat: side chat references');
+
+        // Side chats archived or deleted elsewhere are cleaned up whenever either
+        // list changes and whenever a chat comes on screen, where its pages can close.
+        let sweep;
+        const scheduleSweep = () => {
+          if (sweep !== undefined) return;
+          sweep = setTimeout(() => { sweep = undefined; closeGoneSideChats(ctx, chats); }, 0);
+        };
+        ctx.effect(() => ctx.inject(['sidebarRight', 'workspaces'], (scope) => {
+          const sidebar = scope.get('sidebarRight');
+          const off = [subscribeChildLists(ctx, scheduleSweep)];
+          if (sidebar !== undefined && sidebar !== null && sidebar.mounted !== undefined
+            && typeof sidebar.mounted.subscribe === 'function') off.push(sidebar.mounted.subscribe(scheduleSweep));
+          scheduleSweep();
+          return () => {
+            for (const dispose of off) dispose();
+            if (sweep !== undefined) { clearTimeout(sweep); sweep = undefined; }
+          };
+        }), 'dsh-annotate-sidechat: archived or deleted side chats');
 
         // The overlay is inert until the conversation has mounted once, so a
         // cold page does not install listeners the host would never feed.
@@ -1822,6 +1939,9 @@ window.__ModuleLoader__.load({
             newSideChat: (id) => newSideChat(ctx, chats, id),
             resetSideChat: (id) => resetSideChat(ctx, chats, id, t),
             sendSideChat: (id) => { void submitSideChat(ctx, chats, id, t); },
+            // One stable pair, so a page's subscription never churns.
+            childGone: (childId) => !chats.isResetting(childId) && childGone(ctx, childId),
+            subscribeChildLists: (fn) => subscribeChildLists(ctx, fn),
           };
           const disposeBody = ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
             name: 'sidebar.right.pane.tab',

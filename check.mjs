@@ -352,6 +352,77 @@ assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane ses
   ctx.sessions.retain = originalRetain;
 }
 
+// ── side chats archived or deleted elsewhere are cleaned up ────────────────
+{
+  const { childGone, closeGoneSideChats } = plugin.__test;
+  const listsCtx = ({ archived = [], ids = [], workspaces = 'ready', sessions = 'ready', sidebar } = {}) => ({
+    get: (name) => (name === 'workspaces'
+      ? { list: { getSnapshot: () => ({ phase: workspaces, archivedSessionIds: archived }) } }
+      : (name === 'sidebarRight' ? sidebar : undefined)),
+    sessions: { list: { getSnapshot: () => ({ phase: sessions, ids }) } },
+  });
+  assert.equal(childGone(listsCtx({ archived: ['c'], ids: ['c'] }), 'c'), true, 'an archived child is gone');
+  assert.equal(childGone(listsCtx({ ids: [] }), 'c'), true, 'a child missing from the ready session list is gone');
+  assert.equal(childGone(listsCtx({ ids: ['c'] }), 'c'), false, 'a listed, unarchived child is not');
+  assert.equal(childGone(listsCtx({ archived: ['c'], ids: ['c'], workspaces: 'pending' }), 'c'), false,
+    'an archive set still arriving says nothing');
+  assert.equal(childGone(listsCtx({ ids: [], sessions: 'pending' }), 'c'), false, 'a session list still arriving says nothing');
+  assert.equal(childGone(listsCtx(), null), false, 'a page with no child is never gone');
+
+  const chats = injected.chats;
+  const counts = { released: 0 };
+  const originalRetain = ctx.sessions.retain;
+  ctx.sessions.retain = () => ({ ready: Promise.resolve(), binding: { session: {} }, release: () => { counts.released += 1; } });
+  const page = (id, tabId, childId) => {
+    chats.ensure(id, { parentId: 'gone-parent', index: 1, childId });
+    chats.bindTab(tabId, id);
+  };
+  page('note-arch', 'tab-arch', 'child-arch');
+  page('note-del', 'tab-del', 'child-del');
+  page('note-live', 'tab-live', 'child-live');
+  page('note-reset', 'tab-reset', 'child-reset');
+  storage.set('dsh-annotate-sidechat:page:tab-kept-gone', JSON.stringify({ id: 'note-kept-gone', parentId: 'gone-parent', index: 2, childId: 'child-arch' }));
+  chats.hold('child-del');
+  chats.setResetting('child-reset', true);
+  const closed = [];
+  const kind = 'annotate-sidechat-note';
+  const sidebar = {
+    openTab() {},
+    close: (tabId) => closed.push(tabId),
+    mounted: { getSnapshot: () => 'on-screen' },
+    openTabs: { getSnapshot: () => [
+      { sessionId: 'on-screen', tabId: 'tab-arch', kind },
+      { sessionId: 'elsewhere', tabId: 'tab-del', kind },
+      { sessionId: 'on-screen', tabId: 'tab-live', kind },
+      { sessionId: 'on-screen', tabId: 'tab-reset', kind },
+      { sessionId: 'on-screen', tabId: 'tab-kept-gone', kind },
+      { sessionId: 'on-screen', tabId: 'tab-other-type', kind: 'terminal' },
+    ] },
+  };
+  closeGoneSideChats(listsCtx({
+    archived: ['child-arch', 'child-reset'],
+    ids: ['child-arch', 'child-live', 'child-reset'],
+    sidebar,
+  }), chats);
+  assert.deepEqual(closed, ['tab-arch', 'tab-kept-gone'],
+    'the on-screen chat\'s pages of archived or deleted side chats close, from memory or from their record');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(counts.released, 1, 'a page of a chat not on screen lets its deleted side chat go at once');
+  chats.setResetting('child-reset', false);
+  ctx.sessions.retain = originalRetain;
+
+  const goneTree = body.component({
+    ...body.options.inject('gone-parent'),
+    childGone: () => true,
+    t: (key) => key,
+    useTabInfo: () => ({ tab: { id: 'tab-gone', navigation: { params: { id: 'note-gone', parentId: 'gone-parent', index: 3, childId: 'child-gone' } } } }),
+    renderSlot: () => { throw new Error('a gone side chat must not render its conversation'); },
+    SessionProvider: () => null,
+  });
+  assert.ok(JSON.stringify(goneTree).includes('sideChat.gone'), 'a gone side chat\'s page says so');
+  assert.ok(!JSON.stringify(goneTree).includes('sideChat.reset'), 'and offers nothing to act on');
+}
+
 // ── numbering counts the parent's side chats, sessions and pages alike ──────
 assert.equal(nextSideChatIndex(ctx, injected.chats, 'parent-1'), 3, 'two children in the list ⇒ next is 3');
 injected.chats.create('parent-1');
