@@ -471,14 +471,28 @@ window.__ModuleLoader__.load({
       return highest + 1;
     }
 
-    /** The main chat's transcript root — never the sidebar's copy of it. */
-    function mainTranscript() {
+    /**
+     * One session's transcript root in the main column — never the sidebar's own
+     * copy of it, and never another session's: switching chats leaves the old
+     * transcript in the document for a moment, and reading that one would hand a
+     * new side chat the previous project's history.
+     * @param sessionId - the session the transcript must belong to.
+     */
+    function mainTranscript(sessionId) {
+      let fallback = null;
       try {
         for (const root of document.querySelectorAll(CONVERSATION)) {
-          if (root.closest(SIDEBAR) === null) return root;
+          if (root.closest(SIDEBAR) !== null) continue;
+          const owner = typeof root.dataset.conversationSession === 'string' ? root.dataset.conversationSession : '';
+          if (sessionId !== undefined && sessionId !== '' && owner === sessionId) return root;
+          if (fallback === null) fallback = root;
         }
       } catch (error) { /* no document, nothing to read */ }
-      return null;
+      // Nothing claimed the id: keep the old behaviour rather than showing none.
+      return sessionId === undefined || sessionId === '' ? fallback : (fallback !== null
+        && (typeof fallback.dataset.conversationSession !== 'string' || fallback.dataset.conversationSession === '')
+        ? fallback
+        : null);
     }
 
     /** Whether the main chat is mid-turn, so its last turn is not forkable yet. */
@@ -498,7 +512,7 @@ window.__ModuleLoader__.load({
      */
     function captureInherited(sessions, parentId) {
       const empty = { columnClass: '', html: '', messages: 0, turns: 0, hidden: 0 };
-      const root = mainTranscript();
+      const root = mainTranscript(parentId);
       const first = root === null ? null : root.querySelector('[data-chat-flow-key]');
       const column = first === null ? null : first.parentElement;
       if (root === null || column === null) return empty;
@@ -1131,6 +1145,16 @@ window.__ModuleLoader__.load({
       );
       const childId = entry.childId;
       const hasChild = typeof childId === 'string' && childId !== '';
+      // A pending page belongs to the chat its pane shows: if the column moved to
+      // another session while this page was up, take that session's history
+      // rather than leaving the page bound to the one it was born in.
+      React.useEffect(() => {
+        if (hasChild || paneSessionId === '' || entry.parentId === '' || entry.parentId === paneSessionId) return;
+        props.chats.patch(id, {
+          parentId: paneSessionId,
+          inherited: captureInherited(props.sessions, paneSessionId),
+        });
+      }, [hasChild, paneSessionId, entry.parentId, id]);
       const boundaryTurn = entry.boundaryTurn;
       const first = entry.first;
       const cwd = typeof bag.cwd === 'string' ? bag.cwd : undefined;

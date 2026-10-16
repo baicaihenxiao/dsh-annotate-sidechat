@@ -242,6 +242,15 @@ assert.match(
 );
 assert.ok(!source.includes('filter: brightness'), 'the primary hover no longer washes toward white');
 
+// The transcript snapshot is read from the session on screen, not from whichever
+// conversation happens to be first in the document (a chat switch leaves the
+// previous one mounted for a moment).
+assert.match(source, /function mainTranscript\(sessionId\)/, 'the transcript reader is session-addressed');
+assert.match(source, /root\.dataset\.conversationSession === 'string'/, 'and reads the root\'s own session id');
+assert.match(source, /owner === sessionId\) return root/, 'and returns only that session\'s transcript');
+assert.match(source, /captureInherited\(props\.sessions, paneSessionId\)/,
+  'a pending page re-reads its history when its pane moves to another chat');
+
 // The transcript takes the room and scrolls inside itself; the composer hugs its
 // own content under it, so the history is never covered.
 assert.match(source, /\.dsh-note-transcript\s*\{[^}]*flex:\s*1 1 auto/, 'the transcript takes the room');

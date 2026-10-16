@@ -45,9 +45,11 @@ send the located quote to the main chat or to a side chat**.
    and line height, and its primary fill for a labelled rectangular send button
    (arrow glyph + text), right-aligned in the card. The rows scroll inside the
    transcript's own box, so the composer never covers the history. What the transcript shows is what the new chat
-   is about to inherit — the main chat's completed turns, captured **once, when
-   the side chat is created**, and rendered in the main chat's own markup
-   (markdown, code, layout) rather than as a flattened summary.
+   is about to inherit — the completed turns of the chat **on screen**, captured
+   once when the side chat is created (the reader is session-addressed, so a chat
+   switch cannot hand a new side chat the previous project's history) and
+   rendered in the main chat's own markup (markdown, code, layout) rather than as
+   a flattened summary.
 6. **The chat is created on send, not on click.** Until a composer is sent, the
    page is a plain editable draft and **no chat exists** in the session list.
    Sending forks the main chat (`sessions.fork` with no explicit boundary, so the
@@ -118,7 +120,7 @@ client-only changes need no `dsh web` restart.
 |---|---|
 | `[data-chat-flow-kind="assistant-step"]` | Deciding what is quotable: selection endpoints must sit in one assistant reply |
 | `[data-chat-turn]`, `[data-chat-group-part]` | The location line (turn number, reasoning vs. reply) |
-| `[data-conversation-session]` | Reading the session id when the list snapshot has no `current` |
+| `[data-conversation-session]` | Reading the session id when the list snapshot has no `current`, and picking the on-screen session's own transcript for the snapshot |
 | `[data-sidebar-right-*]` | Keeping sidebar selections out of the quote menu |
 | `ctx.sessions.fork` / `retain` / `binding.session` | Creating the child on send, renaming it, sending its first prompt |
 | `[data-chat-flow-key]` / `[data-chat-flow-kind="user"]` | Cutting the transcript at this side chat's own first message (the turn boundary from the event windows is the fallback) |
