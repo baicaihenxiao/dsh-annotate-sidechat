@@ -15,9 +15,9 @@ select an assistant reply  →  two options: Send to main chat / Send to side ch
                               └─ side chat: the quote goes to the open side chat, or a new one
 ```
 
-> **Status: 0.1.0 — checked headlessly (`node check.mjs`, including a replay of
-> its slot registrations against the host's real slot registry), not yet
-> verified in a browser.** See [Checks](#checks).
+> **Status: 1.0.0 — tested in a browser on DeepSeek Harness `0.2.0-rc.2`, and
+> checked headlessly (`node check.mjs`, including a replay of its slot
+> registrations against the host's real slot registry).** See [Checks](#checks).
 
 ## What it does
 
@@ -150,10 +150,10 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 To remove it again, ask the agent to remove the bundle `dsh-annotate-sidechat`,
 or disable it on DSH's Plugins page.
 
-- Plugin `0.1.0` targets DeepSeek Harness `0.2.0-rc.2`. That version is what
-  `peerDependencies` pins, so DSH refuses to install or activate this bundle on a
-  host it has not been checked against — see [Requirements](#requirements) for
-  the exact packages.
+- Plugin `1.0.0` is tested with DeepSeek Harness `0.2.0-rc.2`. That version is
+  what `peerDependencies` pins, so DSH refuses to install or activate this bundle
+  on a host it has not been verified against — see [Requirements](#requirements)
+  for the exact packages.
 
 ## Updating
 
@@ -165,7 +165,7 @@ itself**. How you update depends on how you installed it:
 |---|---|
 | `github:baicaihenxiao/dsh-annotate-sidechat` | `dsh plugin --profile <profile> update dsh-annotate-sidechat`, or remove the bundle and install it again |
 | a local checkout | `git pull` in the checkout — the profile links the directory |
-| a tag or commit | install the revision you want: `github:baicaihenxiao/dsh-annotate-sidechat#v0.1.0` |
+| a tag or commit | install the revision you want: `github:baicaihenxiao/dsh-annotate-sidechat#v1.0.0` |
 
 Points worth knowing:
 
@@ -175,7 +175,7 @@ Points worth knowing:
   bundle. The `dsh plugin` CLI path only installs the package, so re-select the
   bundle afterwards if you use it.
 - Reload the Web page (or restart `dsh web`) after updating.
-- Pin a release by tag — `#v0.1.0`. A branch name works too. A commit SHA must
+- Pin a release by tag — `#v1.0.0`. A branch name works too. A commit SHA must
   be the full 40 characters: pnpm cannot resolve an abbreviated one.
 - To see what you have installed, read the version in your profile:
 
@@ -187,7 +187,7 @@ Points worth knowing:
 
 | Plugin | DeepSeek Harness | Node |
 |---|---|---|
-| `0.1.0` | `0.2.0-rc.2` | `^22.19.0 \|\| >=24.0.0` |
+| `1.0.0` | `0.2.0-rc.2` | `^22.19.0 \|\| >=24.0.0` |
 
 - A DSH Web profile. Everything the bundle builds on ships with DSH: the right
   sidebar's page registry and `sidebar.right.pane.tab` seat
@@ -197,7 +197,7 @@ Points worth knowing:
   (`@deepseek-ai/dsh-client-ui-workspace`) and the locale registry
   (`@deepseek-ai/dsh-client-locale`) — so the bundle declares no dependencies of
   its own.
-- A DSH version this bundle was checked against. `peerDependencies` pins those
+- A DSH version this bundle was verified against. `peerDependencies` pins those
   four host packages to `0.2.0-rc.2`, and `engines` matches the host's Node range
   (`^22.19.0 || >=24.0.0`). DSH's plugin manager evaluates every
   `@deepseek-ai/dsh*` peer range **against the DSH runtime version** and rejects
@@ -205,12 +205,12 @@ Points worth knowing:
   refusal), so an untested host fails loudly instead of rendering a broken side
   chat. The plugin leans on internal seams (see
   [How it fits the host](#how-it-fits-the-host)), which is why the pin is exact.
-  A newer host version is added here once it has been checked; anyone who needs
+  A newer host version is added here once it has been verified; anyone who needs
   to run ahead of that can grant an exact-version exemption, which accepts the
   risk explicitly:
 
   ```sh
-  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@0.1.0 --dsh-version <runtime> --accept-risk
+  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.0.0 --dsh-version <runtime> --accept-risk
   ```
 - The browser module table provides `react` and `react-dom/client`; this bundle
   imports nothing else.
@@ -294,10 +294,14 @@ page with its own id and number, an open refused once being retried to exactly
 one page, and a sidebar that never mounts surfacing an error in the menu. That
 harness did not reproduce the real host's timing everywhere: the fold marking
 used to run before the conversation body had mounted, which would keep the
-toggle from ever appearing on the real page (fixed since). The real host's
-fork/rename/prompt and archive RPCs and the live sidebar markers were read from
-the host sources, not exercised against a running GUI — a manual pass on the
-real page is still worth doing.
+toggle from ever appearing on the real page (fixed since).
+
+For 1.0.0 the plugin was also checked by hand on a real DSH `0.2.0-rc.2` Web
+page: a side chat sent from a quote and one opened from the guide both render
+the shipped conversation, the console shows no slot-registry error and the
+built-in subagent sidebar chat still works, the inherited-turns toggle appears
+and folds the right rows, a reloaded page keeps its side chat, and a further
+quote lands in an existing side chat's composer.
 
 ## License
 

@@ -976,17 +976,17 @@ window.__ModuleLoader__.load({
     const CSS = `
 .dsh-note-card {
   position: fixed; z-index: 2147483000; box-sizing: border-box;
-  display: flex; flex-direction: column; gap: 6px; padding: 6px;
-  font-family: inherit; font-size: 13px; line-height: 1.5;
+  display: flex; flex-direction: column; gap: 4px; padding: 4px;
+  font-family: inherit; font-size: 12px; line-height: 1.4;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-overlay);
   border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  border-radius: 8px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
 }
-.dsh-note-menu { display: flex; align-items: center; gap: 6px; }
+.dsh-note-menu { display: flex; align-items: center; gap: 4px; }
 .dsh-note-btn {
-  flex: 0 0 auto; padding: 5px 12px; font: inherit; white-space: nowrap; cursor: pointer; border-radius: 8px;
+  flex: 0 0 auto; padding: 3px 8px; font: inherit; white-space: nowrap; cursor: pointer; border-radius: 6px;
   border: 1px solid var(--dsw-alias-border-l1);
   background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary);
 }
