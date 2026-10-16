@@ -6,26 +6,31 @@
  *
  *   Send to main chat  →  the located quote is appended to the main composer
  *   Send to side chat  →  the same quote reaches a side-chat composer in the
- *                         right sidebar, opening one when none is up
+ *                         right sidebar: the one that is open, or a new one
  *
  * The quote is English-located — `Quoted from the assistant's reply (turn 3,
  * paragraph 2):` followed by the block-quoted passage — so the receiver knows
  * which spot of the transcript is being talked about.
  *
- * The side chat is a real `sessions.fork` child of the session on screen, but
- * it is created only when its composer is sent: until then the panel holds a
- * plain draft and no chat exists in the session list. The child is titled
- * `sidechat-N` and is rendered by the host's own `sidebar.chat.conversation`
- * slot, so the panel body IS the shipped conversation.
+ * A side chat is a real `sessions.fork` child of its main chat, created only
+ * when its composer is sent: until then the page holds a plain draft and no
+ * chat exists in the session list. The child is titled
+ * `sidechat-<n>-<main chat title>` and rendered by the host's own
+ * `sidebar.chat.conversation` slot, so the panel body IS the shipped
+ * conversation.
+ *
+ * Several side chats can be open at once (each page carries its own instance
+ * id). Every side chat keeps its inherited transcript folded away — the fork's
+ * copy of the main chat — with a toolbar toggle to show it, plus `Reset side
+ * chat` (archive the session, start over in place) and `New side chat`.
  *
  * Everything is additive: the selection layer degrades to "no menu" if the
  * host's chat DOM markers move, and the side-chat leg degrades to an error line
- * if the sidebar page seat or the input machine is absent. No annotation state
- * is persisted — nothing is left behind in the reply.
+ * if the sidebar page seat or the input machine is absent. Nothing is written
+ * back into the annotated reply.
  *
- * Sidebar selections are the host's: this module never marks the panel body as
- * its own DOM and never swallows its mousedown, so text in the side chat stays
- * selectable and copyable.
+ * Sidebar selections are the host's: the panel never swallows its mousedown, so
+ * text inside a side chat stays selectable and copyable.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-annotate-sidechat',
@@ -40,10 +45,17 @@ window.__ModuleLoader__.load({
       'action.toSide': '发送到侧边对话',
       'guide.description': '不引用也能直接输入；发送后新建 sidechat- 对话',
       'mainChat.failed': '无法写入主对话的输入框。',
-      'sideChat.pendingTitle': '新建侧边对话',
+      'sideChat.chip': 'sidechat-{index}',
+      'sideChat.hideInherited': '隐藏继承内容',
+      'sideChat.inherited': '继承自主对话 {turns} 轮',
+      'sideChat.new': '新建侧边对话',
       'sideChat.pendingHint': '可直接输入，不必引用；发送后新建以 sidechat- 开头的对话',
       'sideChat.pendingPlaceholder': '输入内容…',
+      'sideChat.pendingTitle': '新建侧边对话',
+      'sideChat.reset': '重置侧边对话',
+      'sideChat.resetFailed': '重置失败：{message}',
       'sideChat.send': '发送',
+      'sideChat.showInherited': '显示继承内容',
       'sideChat.empty': '无法打开侧边对话。',
       'sideChat.working': '正在创建侧边对话…',
       'tab.title': '侧边对话',
@@ -54,10 +66,17 @@ window.__ModuleLoader__.load({
       'action.toSide': 'Send to side chat',
       'guide.description': 'Type directly — no quote needed; sending creates a sidechat- chat',
       'mainChat.failed': 'The main chat composer could not be reached.',
-      'sideChat.pendingTitle': 'New side chat',
+      'sideChat.chip': 'sidechat-{index}',
+      'sideChat.hideInherited': 'Hide inherited',
+      'sideChat.inherited': '{turns} turns inherited from the main chat',
+      'sideChat.new': 'New side chat',
       'sideChat.pendingHint': 'Type directly, quoting is optional; sending creates a chat titled sidechat-…',
       'sideChat.pendingPlaceholder': 'Type your message…',
+      'sideChat.pendingTitle': 'New side chat',
+      'sideChat.reset': 'Reset side chat',
+      'sideChat.resetFailed': 'Reset failed: {message}',
       'sideChat.send': 'Send',
+      'sideChat.showInherited': 'Show inherited',
       'sideChat.empty': 'The side chat could not be opened.',
       'sideChat.working': 'Creating the side chat…',
       'tab.title': 'Side chat',
@@ -73,12 +92,16 @@ window.__ModuleLoader__.load({
     const SIDEBAR = '[data-sidebar-right-session], [data-sidebar-right-open], [data-sidebar-right-tab]';
     /** Controls and code chrome never become quoted text. */
     const NON_QUOTE = 'button, [role="button"], input, textarea, select, [contenteditable="true"], [data-code-block-banner]';
-    /** Marker on our own floating DOM — the selection layer and the mouse guard read it. */
+    /** Marker on our own DOM — the selection layer and the page body read it. */
     const OURS = 'data-dsh-annotate-sidechat';
+    /** Marker on one flow item that belongs to the fork's inherited prefix. */
+    const INHERITED = 'data-dsh-sidechat-inherited';
+    /** Attribute that folds every inherited flow item away while it is set. */
+    const COLLAPSED = 'data-dsh-sidechat-collapsed';
     /** Tab type identity: the `sidebar.right.pane.tab` key and the page kind. */
     const TAB_ID = 'dsh-annotate-sidechat:note';
     const TAB_KIND = 'annotate-sidechat-note';
-    /** Side-chat titles all start here, which is also how they are counted. */
+    /** Side-chat titles all start here; the number after it is the chat's index. */
     const TITLE_PREFIX = 'sidechat-';
     /** Block containers the location line can name. */
     const BLOCKS = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, td, th';
@@ -106,6 +129,15 @@ window.__ModuleLoader__.load({
         const row = ctx.sessions.list.getSnapshot().byId[sessionId];
         return row !== null && row !== undefined && typeof row.cwd === 'string' && row.cwd !== '' ? row.cwd : undefined;
       } catch (error) { return undefined; }
+    }
+
+    /** The durable title and directory of one session row, for the child's name. */
+    function parentInfo(ctx, parentId) {
+      try {
+        const row = ctx.sessions.list.getSnapshot().byId[parentId];
+        if (row === null || row === undefined) return { title: '', cwd: undefined };
+        return { title: typeof row.title === 'string' ? row.title : '', cwd: typeof row.cwd === 'string' ? row.cwd : undefined };
+      } catch (error) { return { title: '', cwd: undefined }; }
     }
 
     function sidebarRightOf(ctx) {
@@ -280,88 +312,236 @@ window.__ModuleLoader__.load({
       return quoteText(snapshot) + '\n';
     }
 
-    // ── side chat ───────────────────────────────────────────────────────────
+    // ── side chats ──────────────────────────────────────────────────────────
 
     /**
-     * One side chat per parent session: its child (once the panel was sent),
-     * the panel's draft while it is still pending, and its own busy/error state.
-     * Entries are replaced on write, so every read is a stable snapshot.
-     * `focusToken` counts outside requests for the panel's composer focus, so a
-     * re-render that only echoes the user's own typing never moves the caret.
+     * Every side chat this page knows, keyed by its own instance id. Entries are
+     * replaced on write, so every read is a stable snapshot. `focusToken` counts
+     * outside requests for the panel's composer focus, so a re-render that only
+     * echoes the user's own typing never moves the caret.
      */
-    function createSideChats() {
+    function createSideChats(ctx) {
       const entries = new Map();
+      const tabIds = new Map();
+      const idsByTab = new Map();
       const listeners = new Set();
-      const EMPTY = { childId: null, draft: '', busy: false, error: '', focusToken: 0 };
-      return {
+      const EMPTY = {
+        id: '',
+        parentId: '',
+        index: 0,
+        childId: null,
+        boundaryTurn: null,
+        draft: '',
+        busy: false,
+        error: '',
+        focusToken: 0,
+        collapsed: true,
+      };
+      const notify = () => { for (const fn of Array.from(listeners)) fn(); };
+      const store = {
         subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
-        get(parentId) {
-          if (typeof parentId !== 'string' || parentId === '') return EMPTY;
-          return entries.get(parentId) ?? EMPTY;
+        get(id) {
+          if (typeof id !== 'string' || id === '') return EMPTY;
+          return entries.get(id) ?? EMPTY;
         },
-        /** Install the tab-restored state once; an entry already in hand wins. */
-        ensure(parentId, seed) {
-          if (typeof parentId !== 'string' || parentId === '') return EMPTY;
-          const existing = entries.get(parentId);
+        /** Install a page's restored state once; an entry already in hand wins. */
+        ensure(id, seed) {
+          if (typeof id !== 'string' || id === '') return EMPTY;
+          const existing = entries.get(id);
           if (existing !== undefined) return existing;
-          const entry = { ...EMPTY, ...seed };
-          entries.set(parentId, entry);
+          const entry = { ...EMPTY, ...seed, id: id };
+          entries.set(id, entry);
           return entry;
         },
-        patch(parentId, next) {
-          if (typeof parentId !== 'string' || parentId === '') return;
-          entries.set(parentId, { ...(entries.get(parentId) ?? EMPTY), ...next });
-          for (const fn of Array.from(listeners)) fn();
+        patch(id, next) {
+          if (typeof id !== 'string' || id === '') return;
+          entries.set(id, { ...(entries.get(id) ?? EMPTY), ...next, id: id });
+          notify();
         },
+        /** Live side chats of one parent session, for numbering and for the toolbar. */
+        of(parentId) {
+          return Array.from(entries.values()).filter((entry) => entry.parentId === parentId);
+        },
+        /** Mint the side chat a page opened without params (the guide) belongs to. */
+        forTab(tabId, parentId) {
+          const known = tabIds.get(tabId);
+          if (known !== undefined) return known;
+          const entry = store.create(parentId);
+          store.bindTab(tabId, entry.id);
+          return entry.id;
+        },
+        create(parentId) {
+          const id = 'note-' + Math.random().toString(36).slice(2, 10);
+          const entry = { ...EMPTY, id: id, parentId: parentId, index: nextSideChatIndex(ctx, store, parentId) };
+          entries.set(id, entry);
+          notify();
+          return entry;
+        },
+        bindTab(tabId, id) {
+          if (typeof tabId !== 'string' || tabId === '' || typeof id !== 'string' || id === '') return;
+          const previous = tabIds.get(tabId);
+          if (previous !== undefined && previous !== id) idsByTab.delete(previous);
+          tabIds.set(tabId, id);
+          idsByTab.set(id, tabId);
+        },
+        idOfTab(tabId) {
+          return typeof tabId === 'string' ? tabIds.get(tabId) : undefined;
+        },
+        tabOfId(id) {
+          return typeof id === 'string' ? idsByTab.get(id) : undefined;
+        },
+      };
+      return store;
+    }
+
+    /** `sidechat-<n>-<main chat title>`; the suffix falls back to the directory name. */
+    function sideChatTitle(index, parentTitle, cwd) {
+      const named = typeof parentTitle === 'string' ? parentTitle.trim() : '';
+      const suffix = named !== '' ? named : cwdBasename(cwd);
+      return TITLE_PREFIX + index + (suffix === '' ? '' : '-' + suffix);
+    }
+
+    function cwdBasename(cwd) {
+      if (typeof cwd !== 'string' || cwd === '') return '';
+      const parts = cwd.split(/[\\/]/).filter((part) => part !== '');
+      return parts.length === 0 ? '' : parts[parts.length - 1];
+    }
+
+    /**
+     * The next free `sidechat-<n>` number for one parent: one past the highest
+     * number any of its side chats carries, counting the sessions already in the
+     * list (including archived ones) and the pending pages in hand.
+     */
+    function nextSideChatIndex(ctx, chats, parentId) {
+      let highest = 0;
+      if (ctx !== null && ctx !== undefined) {
+        try {
+          const list = ctx.sessions.list.getSnapshot();
+          for (const id of list.ids) {
+            const row = list.byId[id];
+            if (row === undefined || row === null || row.parentId !== parentId) continue;
+            const match = typeof row.title === 'string' ? /^sidechat-(\d+)/.exec(row.title) : null;
+            if (match !== null) highest = Math.max(highest, Number(match[1]));
+          }
+        } catch (error) { /* the list may not be up yet — numbering still counts in-hand pages */ }
+      }
+      for (const entry of chats.of(parentId)) if (entry.index > highest) highest = entry.index;
+      return highest + 1;
+    }
+
+    /** One durable-window read of a retained session, for the fork boundary. */
+    function windowEntries(ctx, sessionId) {
+      try {
+        const binding = ctx.sessions.binding(sessionId);
+        if (binding === undefined) return undefined;
+        return binding.eventSource.getSnapshot().entries;
+      } catch (error) { return undefined; }
+    }
+
+    /**
+     * The last turn a fresh fork inherited, or null when it cannot be told.
+     *
+     * The fork copies an inclusive prefix, so every seq the child shares with
+     * its parent is inherited; the highest shared seq is that prefix's end. The
+     * boundary is the highest turn among the child's own events up to it — the
+     * panel folds turns at or below it away.
+     */
+    function inheritedTurnBoundary(ctx, parentId, childId) {
+      const parentEntries = windowEntries(ctx, parentId);
+      const childEntries = windowEntries(ctx, childId);
+      if (parentEntries === undefined || childEntries === undefined) return null;
+      const parentSeqs = new Set();
+      for (const entry of parentEntries) if (entry.type === 'event') parentSeqs.add(entry.event.seq);
+      let boundarySeq = null;
+      for (const entry of childEntries) {
+        if (entry.type !== 'event') continue;
+        const seq = entry.event.seq;
+        if (!parentSeqs.has(seq)) continue;
+        if (boundarySeq === null || seq > boundarySeq) boundarySeq = seq;
+      }
+      if (boundarySeq === null) return null;
+      let turn = null;
+      for (const entry of childEntries) {
+        if (entry.type !== 'event' || entry.event.seq > boundarySeq) continue;
+        const value = entry.event.data === undefined ? undefined : entry.event.data.turn;
+        if (typeof value !== 'number' || !Number.isSafeInteger(value)) continue;
+        if (turn === null || value > turn) turn = value;
+      }
+      return turn;
+    }
+
+    /** One side chat's page parameters: the whole state a reload needs. */
+    function sideChatParams(entry) {
+      return {
+        id: entry.id,
+        parentId: entry.parentId,
+        index: entry.index,
+        ...entry.childId === null ? {} : { childId: entry.childId },
+        ...entry.boundaryTurn === null ? {} : { boundaryTurn: entry.boundaryTurn },
+        ...entry.draft === '' ? {} : { draft: entry.draft },
       };
     }
 
-    /** `sidechat-<n>`, where n counts the parent's existing side chats. */
-    function nextSideChatTitle(ctx, parentId) {
-      let count = 0;
-      try {
-        const list = ctx.sessions.list.getSnapshot();
-        for (const id of list.ids) {
-          const row = list.byId[id];
-          if (row === undefined || row === null || row.parentId !== parentId) continue;
-          if (typeof row.title === 'string' && row.title.startsWith(TITLE_PREFIX)) count += 1;
-        }
-      } catch (error) { /* the list may not be up yet — start at 1 */ }
-      return TITLE_PREFIX + (count + 1);
-    }
-
-    /** Open (or reveal) the side-chat page for one parent session. */
-    function revealSideChatTab(ctx, parentId, entry) {
+    /** Open a fresh side-chat page (`multiple: true` ⇒ one page per side chat). */
+    function openSideChatPage(ctx, entry) {
       const sidebar = sidebarRightOf(ctx);
       if (sidebar === undefined) return false;
-      const cwd = currentCwd(ctx, parentId);
+      const cwd = currentCwd(ctx, entry.parentId);
       sidebar.openTab(TAB_KIND, {
-        params: {
-          parentId: parentId,
-          ...entry.childId === null ? {} : { childId: entry.childId },
-          ...entry.draft === '' ? {} : { draft: entry.draft },
-          ...cwd === undefined ? {} : { cwd: cwd },
-        },
+        params: { ...sideChatParams(entry), ...cwd === undefined ? {} : { cwd: cwd } },
       });
       return true;
     }
 
     /**
-     * Fork `parentId`, title the child `sidechat-N`, and send `text` as its
-     * first message. This is the only place a side chat is created, which is why
-     * nothing shows up in the session list before the panel is sent.
+     * Rewrite one side chat's page parameters in place — the tab takes its own
+     * place back — so a reloaded page restores the chat it was showing.
+     */
+    function refreshSideChatPage(ctx, chats, id) {
+      const sidebar = sidebarRightOf(ctx);
+      const tabId = chats.tabOfId(id);
+      if (sidebar === undefined || tabId === undefined) return;
+      const entry = chats.get(id);
+      const cwd = currentCwd(ctx, entry.parentId);
+      sidebar.openTab(TAB_KIND, {
+        replaceTab: tabId,
+        params: { ...sideChatParams(entry), ...cwd === undefined ? {} : { cwd: cwd } },
+      });
+    }
+
+    /** The side chat the right sidebar currently shows, when there is one. */
+    function activeSideChatId(ctx, chats) {
+      const sidebar = sidebarRightOf(ctx);
+      if (sidebar === undefined || typeof sidebar.active !== 'function') return undefined;
+      try {
+        const onScreen = sidebar.mounted !== undefined && typeof sidebar.mounted.getSnapshot === 'function'
+          ? sidebar.mounted.getSnapshot()
+          : undefined;
+        if (typeof onScreen !== 'string' || onScreen === '' || onScreen !== currentSessionId(ctx)) return undefined;
+        const tab = sidebar.active();
+        if (tab === undefined || tab === null || tab.kind !== TAB_KIND) return undefined;
+        return chats.idOfTab(tab.id);
+      } catch (error) { return undefined; }
+    }
+
+    /**
+     * Fork `parentId`, title the child `sidechat-<index>-<parent title>`, and
+     * send `text` as its first message. This is the only place a side chat is
+     * created, which is why nothing shows up in the session list before a
+     * composer is sent.
      * @returns the child session id.
      */
-    async function createSideChat(ctx, parentId, text) {
+    async function createSideChat(ctx, parentId, text, index) {
       const childId = await ctx.sessions.fork({ sessionId: parentId });
       const reference = ctx.sessions.retain(childId, { source: 'sidebarChat' });
       let handedOver = false;
       try {
         await reference.ready;
         const session = reference.binding.session;
+        const info = parentInfo(ctx, parentId);
         // Rename first: an explicit title pins the session against automatic
-        // title generation from the first message.
-        const renamed = await session.rename(nextSideChatTitle(ctx, parentId));
+        // generation from the first message.
+        const renamed = await session.rename(sideChatTitle(index, info.title, info.cwd));
         if (!renamed.ok) throw new Error(renamed.error.message);
         const submission = session.beginSubmission({ mode: 'queue', text: text, attachments: [] });
         const sent = await session.prompt([{ type: 'text', text: text }], 'queue', undefined, submission.requestId);
@@ -379,22 +559,61 @@ window.__ModuleLoader__.load({
       return childId;
     }
 
-    /** Send the pending panel: this is what creates the chat. */
-    async function submitSideChat(ctx, chats, parentId) {
-      if (typeof parentId !== 'string' || parentId === '') return;
-      const entry = chats.get(parentId);
+    /** Send one pending panel: this is what creates the chat. */
+    async function submitSideChat(ctx, chats, id) {
+      const entry = chats.get(id);
+      if (entry.id === '' || entry.busy) return;
       const text = entry.draft.trim();
-      if (text === '' || entry.busy) return;
-      chats.patch(parentId, { busy: true, error: '' });
+      if (text === '') return;
+      const index = entry.index > 0 ? entry.index : nextSideChatIndex(ctx, chats, entry.parentId);
+      chats.patch(id, { busy: true, error: '', index: index });
       try {
-        const childId = await createSideChat(ctx, parentId, text);
-        chats.patch(parentId, { childId: childId, draft: '', busy: false, error: '' });
-        // Record the child in the tab's own navigation params so a reloaded page
-        // restores the conversation instead of an empty composer.
-        revealSideChatTab(ctx, parentId, chats.get(parentId));
+        const childId = await createSideChat(ctx, entry.parentId, text, index);
+        const boundaryTurn = inheritedTurnBoundary(ctx, entry.parentId, childId);
+        chats.patch(id, { childId: childId, boundaryTurn: boundaryTurn, draft: '', busy: false, error: '' });
+        // Record the child (and the boundary) in the page's own params.
+        refreshSideChatPage(ctx, chats, id);
       } catch (error) {
-        chats.patch(parentId, { busy: false, error: String((error && error.message) || error) });
+        chats.patch(id, { busy: false, error: String((error && error.message) || error) });
       }
+    }
+
+    /** `Reset side chat`: archive the session and start over in this same page. */
+    async function resetSideChat(ctx, chats, id, t) {
+      const entry = chats.get(id);
+      if (entry.id === '') return;
+      if (entry.childId !== null) {
+        const workspace = ctx.get('uiWorkspace');
+        if (workspace !== undefined && workspace !== null && typeof workspace.archiveSession === 'function') {
+          try {
+            await workspace.archiveSession(entry.childId, { stopActivity: true });
+          } catch (error) {
+            chats.patch(id, { error: t('sideChat.resetFailed', { message: String((error && error.message) || error) }) });
+            return;
+          }
+        }
+      }
+      // A fresh number: the archived chat keeps the old one, so titles stay
+      // distinct, and the reset page goes back to a plain composer.
+      chats.patch(id, {
+        index: nextSideChatIndex(ctx, chats, entry.parentId),
+        childId: null,
+        boundaryTurn: null,
+        draft: '',
+        busy: false,
+        error: '',
+        collapsed: true,
+        focusToken: entry.focusToken + 1,
+      });
+      refreshSideChatPage(ctx, chats, id);
+    }
+
+    /** `New side chat`: one more page for the same main chat. */
+    function newSideChat(ctx, chats, id) {
+      const entry = chats.get(id);
+      if (entry.id === '') return;
+      const created = chats.create(entry.parentId);
+      openSideChatPage(ctx, chats.get(created.id));
     }
 
     // ── the overlay ─────────────────────────────────────────────────────────
@@ -435,6 +654,18 @@ window.__ModuleLoader__.load({
   color: var(--dsw-alias-label-primary);
 }
 .dsh-note-panelTitle { font-weight: 600; }
+.dsh-note-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; }
+.dsh-note-tool {
+  padding: 3px 8px; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; border-radius: 6px;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l1);
+}
+.dsh-note-tool:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
+.dsh-note-tool[data-active] { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
+.dsh-note-sideBody { flex: 1 1 auto; min-height: 0; display: flex; }
+/* The fork's inherited prefix, folded away until the toolbar is asked to show it. */
+.dsh-note-sideBody[data-dsh-sidechat-collapsed] [data-dsh-sidechat-inherited] { display: none; }
 .dsh-note-input {
   display: block; box-sizing: border-box; width: 100%; min-height: 84px; flex: 1 1 auto; resize: none;
   padding: 8px; font: inherit; color: inherit;
@@ -538,30 +769,37 @@ window.__ModuleLoader__.load({
         store.set({ pending: null, error: '' });
       }
 
-      /** Send to side chat: same quote, into the side chat's own composer. */
+      /**
+       * Send to side chat: the quote joins the side chat the sidebar shows, and a
+       * new side chat is opened when it shows none.
+       */
       function toSide(selection) {
         const parentId = currentSessionId(ctx);
         if (parentId === '') { store.set({ pending: selection, error: t('sideChat.empty') }); return; }
         const text = draftQuote(selection);
-        const entry = chats.get(parentId);
-        const created = typeof entry.childId === 'string' && entry.childId !== '';
+        const activeId = activeSideChatId(ctx, chats);
+        const active = activeId === undefined ? undefined : chats.get(activeId);
+        const target = active !== undefined && active.id !== '' && active.parentId === parentId ? active : undefined;
         clearSelection();
-        if (created) {
+        if (target !== undefined && target.childId !== null) {
           // The chat exists: the quote joins that conversation's composer draft,
           // and the composer takes the focus once the panel is up.
-          void writeDraft(ctx, entry.childId, text, 10);
-        } else {
-          // The pending panel owns this draft; the bumped token asks it to take
-          // the focus once it has re-rendered with the quote.
-          chats.patch(parentId, {
-            draft: appendDraft(entry.draft, text),
+          void writeDraft(ctx, target.childId, text, 10);
+        } else if (target !== undefined) {
+          // The open page is still pending; the bumped token asks it to take the
+          // focus once it has re-rendered with the quote.
+          chats.patch(target.id, {
+            draft: appendDraft(target.draft, text),
             error: '',
-            focusToken: entry.focusToken + 1,
+            focusToken: target.focusToken + 1,
           });
-        }
-        if (!revealSideChatTab(ctx, parentId, chats.get(parentId))) {
-          store.set({ pending: selection, error: t('sideChat.empty') });
-          return;
+        } else {
+          const created = chats.create(parentId);
+          chats.patch(created.id, { draft: text });
+          if (!openSideChatPage(ctx, chats.get(created.id))) {
+            store.set({ pending: selection, error: t('sideChat.empty') });
+            return;
+          }
         }
         store.set({ pending: null, error: '' });
       }
@@ -624,15 +862,16 @@ window.__ModuleLoader__.load({
       );
     }
 
-    // ── the side-chat tab ───────────────────────────────────────────────────
+    // ── the side-chat page ──────────────────────────────────────────────────
 
     /**
-     * One side-chat page body. Before the panel is sent it is a plain composer —
+     * One side-chat page body. Before the page is sent it is a plain composer —
      * holding a quote when the menu opened it, empty when the sidebar's guide
      * opened it, since a side chat needs no quote. Once sent it declares the
      * host's `sidebar.chat.conversation` child slot and wraps it in the framework
      * `SessionProvider`, so the panel renders the shipped conversation (message
-     * stream + composer) for the forked child.
+     * stream + composer) for the forked child, with the fork's inherited prefix
+     * folded away.
      */
     function SideChatTab(props) {
       const t = props.t;
@@ -644,21 +883,30 @@ window.__ModuleLoader__.load({
       // session — the framework-resolved `sessionId` — is the side chat's parent.
       const paneSessionId = typeof props.sessionId === 'string' ? props.sessionId : '';
       const parentId = typeof bag.parentId === 'string' && bag.parentId !== '' ? bag.parentId : paneSessionId;
-      // A tab restored from a previous page load carries its child and draft in
-      // its own navigation params; the store is authoritative once it has an entry.
-      props.chats.ensure(parentId, {
+      const tabId = typeof info.tab.id === 'string' ? info.tab.id : '';
+      // A page opened from the guide carries no params at all: it mints its own
+      // side chat, once per tab.
+      const id = typeof bag.id === 'string' && bag.id !== '' ? bag.id : props.sideChatForTab(tabId, parentId);
+      props.chats.ensure(id, {
+        parentId: parentId,
+        index: Number.isSafeInteger(bag.index) ? bag.index : 1,
         childId: typeof bag.childId === 'string' ? bag.childId : null,
+        boundaryTurn: Number.isSafeInteger(bag.boundaryTurn) ? bag.boundaryTurn : null,
         draft: typeof bag.draft === 'string' ? bag.draft : '',
       });
+      props.chats.bindTab(tabId, id);
       const entry = React.useSyncExternalStore(
         (fn) => props.chats.subscribe(fn),
-        () => props.chats.get(parentId),
+        () => props.chats.get(id),
       );
       const childId = entry.childId;
+      const boundaryTurn = entry.boundaryTurn;
       const cwd = typeof bag.cwd === 'string' ? bag.cwd : undefined;
       const [reference, setReference] = React.useState(null);
       const [failed, setFailed] = React.useState(false);
+      const [inherited, setInherited] = React.useState(0);
       const composerRef = React.useRef(null);
+      const bodyRef = React.useRef(null);
 
       React.useEffect(() => {
         if (typeof childId !== 'string' || childId === '') { setReference(null); setFailed(false); return undefined; }
@@ -684,20 +932,78 @@ window.__ModuleLoader__.load({
         try { node.setSelectionRange(end, end); } catch (error) { /* not selectable */ }
       }, [entry.focusToken, entry.busy]);
 
+      // Mark the fork's inherited flow items, and keep marking them as older
+      // history pages arrive. `inherited` is what the toolbar toggles.
+      React.useEffect(() => {
+        const node = bodyRef.current;
+        if (node === null || typeof boundaryTurn !== 'number') { setInherited(0); return undefined; }
+        let frame = null;
+        const mark = () => {
+          frame = null;
+          const turns = new Set();
+          for (const item of node.querySelectorAll('[data-chat-turn]')) {
+            const turn = Number(item.getAttribute('data-chat-turn'));
+            if (Number.isSafeInteger(turn) && turn <= boundaryTurn) {
+              item.setAttribute(INHERITED, '');
+              turns.add(turn);
+            } else {
+              item.removeAttribute(INHERITED);
+            }
+          }
+          setInherited(turns.size);
+        };
+        mark();
+        const observer = new MutationObserver(() => {
+          if (frame !== null) return;
+          frame = requestAnimationFrame(mark);
+        });
+        observer.observe(node, { childList: true, subtree: true });
+        return () => {
+          observer.disconnect();
+          if (frame !== null) cancelAnimationFrame(frame);
+        };
+      }, [boundaryTurn, childId]);
+
+      const tools = h('div', { className: 'dsh-note-tools' },
+        h('button', {
+          className: 'dsh-note-tool', type: 'button',
+          onClick: () => props.newSideChat(id),
+        }, t('sideChat.new')),
+        h('button', {
+          className: 'dsh-note-tool', type: 'button',
+          onClick: () => { void props.resetSideChat(id); },
+        }, t('sideChat.reset')),
+        typeof childId === 'string' && childId !== '' && inherited > 0
+          ? h('button', {
+              className: 'dsh-note-tool', type: 'button',
+              'data-active': entry.collapsed ? undefined : true,
+              onClick: () => props.chats.patch(id, { collapsed: !entry.collapsed }),
+            }, (entry.collapsed ? t('sideChat.showInherited') : t('sideChat.hideInherited'))
+              + ' · ' + t('sideChat.inherited', { turns: inherited }))
+          : null,
+      );
+
       if (typeof childId === 'string' && childId !== '') {
-        if (failed) return h('div', { style: { padding: '16px' } }, t('sideChat.empty'));
-        if (reference === null) return h('div', { style: { padding: '16px', opacity: 0.6 } }, t('sideChat.working'));
+        if (failed) return h('div', { className: 'dsh-note-panel', [OURS]: '' }, tools, h('div', null, t('sideChat.empty')));
+        if (reference === null) return h('div', { className: 'dsh-note-panel', [OURS]: '' }, tools, h('div', { style: { opacity: 0.6 } }, t('sideChat.working')));
         // `reference` IS the scope target (`SlotScopeTargetMap.session`); the
         // fork inherits the parent's cwd, so only a divergence needs carrying.
         if (cwd !== undefined) reference.cwd = cwd;
-        return h('div', {
-          style: { display: 'flex', width: '100%', height: '100%', minHeight: 0 },
-        }, h(props.SessionProvider, { session: reference },
-          props.renderSlot('sidebar.chat.conversation', {})));
+        return h('div', { className: 'dsh-note-panel', [OURS]: '' },
+          tools,
+          entry.error === '' ? null : h('div', { className: 'dsh-note-error' }, entry.error),
+          h('div', {
+            className: 'dsh-note-sideBody',
+            ref: bodyRef,
+            ...entry.collapsed ? { [COLLAPSED]: '' } : {},
+          }, h(props.SessionProvider, { session: reference },
+            props.renderSlot('sidebar.chat.conversation', {}))),
+        );
       }
 
-      const send = () => props.sendSideChat(parentId);
+      const send = () => props.sendSideChat(id);
       return h('div', { className: 'dsh-note-panel', [OURS]: '' },
+        tools,
         h('div', { className: 'dsh-note-panelTitle' }, t('sideChat.pendingTitle')),
         h('div', { className: 'dsh-note-hint' }, t('sideChat.pendingHint')),
         h('textarea', {
@@ -706,7 +1012,7 @@ window.__ModuleLoader__.load({
           value: entry.draft,
           disabled: entry.busy,
           placeholder: t('sideChat.pendingPlaceholder'),
-          onChange: (event) => props.chats.patch(parentId, { draft: event.target.value, error: '' }),
+          onChange: (event) => props.chats.patch(id, { draft: event.target.value, error: '' }),
           onKeyDown: (event) => {
             if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); }
           },
@@ -720,6 +1026,22 @@ window.__ModuleLoader__.load({
         ),
         entry.error === '' ? null : h('div', { className: 'dsh-note-error' }, entry.error),
       );
+    }
+
+    /** The tab chip: which side chat a page is, when several are open. */
+    function SideChatChip(props) {
+      const info = props.useTabInfo();
+      const params = info.tab.navigation.params;
+      const bag = params !== null && typeof params === 'object' ? params : {};
+      const tabId = typeof info.tab.id === 'string' ? info.tab.id : '';
+      const bound = props.chats.idOfTab(tabId);
+      const id = typeof bound === 'string' ? bound : (typeof bag.id === 'string' ? bag.id : '');
+      const entry = React.useSyncExternalStore(
+        (fn) => props.chats.subscribe(fn),
+        () => props.chats.get(id),
+      );
+      const index = entry.index > 0 ? entry.index : (Number.isSafeInteger(bag.index) ? bag.index : 1);
+      return h('span', null, props.t('sideChat.chip', { index: index }));
     }
 
     /**
@@ -740,7 +1062,7 @@ window.__ModuleLoader__.load({
 
     return {
       inject: ['sessions', 'slots', 'locale'],
-      /** Pure formatting plus the selection rule, for the runnable check (`check.mjs`). */
+      /** Pure formatting, naming, and the selection rule, for the runnable check. */
       __test: {
         locationLine: locationLine,
         quoteText: quoteText,
@@ -748,11 +1070,13 @@ window.__ModuleLoader__.load({
         appendDraft: appendDraft,
         selectionText: selectionText,
         capture: capture,
+        sideChatTitle: sideChatTitle,
+        nextSideChatIndex: nextSideChatIndex,
       },
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh: zh, en: en }), 'dsh-annotate-sidechat: dictionaries');
         const t = ctx.locale.bind(NS);
-        const chats = createSideChats();
+        const chats = createSideChats(ctx);
 
         // The overlay is inert until the conversation has mounted once, so a
         // cold page does not install listeners the host would never feed.
@@ -777,13 +1101,13 @@ window.__ModuleLoader__.load({
             id: TAB_ID,
             kind: TAB_KIND,
             priority: 'extension',
-            // One side chat per session pane: opening again reveals the same page
-            // and refreshes its navigation params instead of stacking a second one.
-            multiple: false,
+            // Each side chat is its own page; opening again is how a second one
+            // is born, and a page rewrites its own params in place (replaceTab).
+            multiple: true,
             title: () => t('tab.title'),
             // The guide (the strip's add control / empty column) is how a side
             // chat is opened without quoting anything — picking it opens the page
-            // with no params, and the body falls back to the pane's session.
+            // with no params, and the body mints a side chat for the pane.
             guide: [{
               id: TAB_ID,
               order: 120,
@@ -791,6 +1115,12 @@ window.__ModuleLoader__.load({
               description: () => t('guide.description'),
             }],
           });
+          const shared = {
+            chats: chats,
+            newSideChat: (id) => newSideChat(ctx, chats, id),
+            resetSideChat: (id) => resetSideChat(ctx, chats, id, t),
+            sendSideChat: (id) => { void submitSideChat(ctx, chats, id); },
+          };
           const disposeBody = ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
             name: 'sidebar.right.pane.tab',
             key: TAB_ID,
@@ -798,17 +1128,23 @@ window.__ModuleLoader__.load({
             locale: NS,
             // Session-scoped slots hand the injector the pane's own session id.
             inject: (sessionId) => ({
+              ...shared,
               sessions: ctx.sessions,
-              chats: chats,
               sessionId: sessionId,
-              sendSideChat: (parentId) => { void submitSideChat(ctx, chats, parentId); },
+              sideChatForTab: (tabId, parentId) => chats.forTab(tabId, parentId),
             }),
           }, SideChatTab));
+          const disposeTitle = ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
+            name: 'sidebar.right.pane.tab.title',
+            key: TAB_ID,
+            locale: NS,
+            inject: () => ({ chats: chats }),
+          }, SideChatChip));
           const disposeChat = ctx.slots.inject('sidebar.chat.conversation', () => ctx.slots.register({
             name: 'sidebar.chat.conversation',
             locale: NS,
           }, SideChatPanel));
-          return () => { disposeChat(); disposeBody(); disposeType(); };
+          return () => { disposeChat(); disposeTitle(); disposeBody(); disposeType(); };
         }), 'dsh-annotate-sidechat: side chat tab');
       },
     };

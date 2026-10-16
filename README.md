@@ -1,12 +1,12 @@
 # dsh-annotate-sidechat
 
-A DeepSeek Harness (DSH) Web plugin: **select text in an assistant reply,
-send it to the main chat or to a side chat**.
+A DeepSeek Harness (DSH) Web plugin: **select text in an assistant reply, then
+send the located quote to the main chat or to a side chat**.
 
 ```
 划选 assistant 回复  →  两个选项：Send to main chat / Send to side chat
-                        ├─ 主对话：引用内容追加到输入框（空一行）
-                        └─ 侧边对话：引用内容进入侧边面板，发送后才新建 sidechat-N
+                        ├─ 主对话：引用内容追加到输入框（空一行，末尾换行，光标到位）
+                        └─ 侧边对话：引用进入当前打开的 sidechat，没有就新建一个
 ```
 
 > **Status: 0.1.0 — checked headlessly (`node check.mjs`), not yet verified in a
@@ -18,13 +18,10 @@ send it to the main chat or to a side chat**.
    opens right below the selection. Nothing inside the right sidebar, and no
    control or code-block chrome, is treated as quotable.
 2. **Send to main chat** appends the quote to the main composer draft: the text
-   already there, one blank line, then the quote. `Send to side chat` puts the
-   same quote in a side chat. Either destination ends the draft with a newline,
-   so the caret waits on a fresh line for your own words, and either destination
-   takes the keyboard: the menu hands focus to the composer it just filled —
-   the main composer, the existing side chat's composer, or the pending side
-   chat's own composer. (The primary menu entry keeps its brand fill while
-   hovered — it never flashes the light layer colour.)
+   already there, one blank line, then the quote. Either destination ends the
+   draft with a newline and hands the composer the keyboard, so the caret waits
+   on a fresh line for your own words. (The primary menu entry keeps its brand
+   fill while hovered — it never flashes the light layer colour.)
 3. **The quote is English-located** — which spot of the transcript is being
    quoted, then the passage as a block quote:
 
@@ -33,15 +30,27 @@ send it to the main chat or to a side chat**.
    > the selected passage
    > continues here
    ```
-4. **A side chat needs no quote.** The page is also offered in the right
+4. **Send to side chat** goes to the side chat the right sidebar is showing. With
+   none open it opens a new page; with several open, the one you are looking at
+   gets the quote. When that page is still a draft the quote joins its composer;
+   once the chat exists the quote joins that chat's own composer.
+5. **A side chat needs no quote.** The page is also offered in the right
    sidebar's guide (the strip's add control / the empty column), and a side chat
    opened that way starts with an empty composer you simply type into.
-5. **The side chat is created on send, not on click.** `Send to side chat`
-   reveals (or opens) the side-chat page in the right sidebar; until its composer
-   is sent, that page is a plain editable draft and **no chat exists** in the
-   session list. Sending then forks the session on screen (`sessions.fork`),
-   titles the child `sidechat-1`, `sidechat-2`, … (counting that parent's
-   existing side chats), and sends the draft as the child's first message.
+6. **The chat is created on send, not on click.** Until a composer is sent, the
+   page is a plain editable draft and **no chat exists** in the session list.
+   Sending forks the main chat (`sessions.fork`), titles the child
+   `sidechat-<n>-<main chat title>`, and sends the draft as its first message.
+7. **The inherited transcript is folded away.** A fork carries a copy of the main
+   chat's completed turns; those turns are collapsed behind a toolbar button
+   (`显示继承内容 · 继承自主对话 N 轮`) and only shown when you ask for them.
+   Each side chat page has its own toolbar:
+
+   | Button | What it does |
+   |---|---|
+   | `New side chat` | Opens another side-chat page for the same main chat (several can be open at once) |
+   | `Reset side chat` | Archives the current chat and returns this page to an empty composer; the next send forks a fresh chat |
+   | `显示/隐藏继承内容` | Shows or hides the fork's inherited turns |
 
 The side-chat panel is not a reimplementation: once the child exists, the panel
 declares the host's own `sidebar.chat.conversation` child slot and wraps it in
@@ -49,7 +58,9 @@ the framework `SessionProvider`, so it renders the shipped conversation —
 message stream and composer included. Text inside that panel is the host's DOM:
 it stays selectable and copyable, and the sidebar is never quoted.
 
-Nothing is persisted and the quoted reply is never modified.
+Nothing is written back into the annotated reply, and the plugin keeps no store
+of its own: each page carries its state (side-chat id, number, child, boundary,
+draft) in its own navigation params, which the host persists with the layout.
 
 ## Install
 
@@ -75,11 +86,11 @@ client-only changes need no `dsh web` restart.
 
 | File | Role |
 |---|---|
-| `client.js` | Everything: selection capture, the quote, the two-item menu, the sidebar page type and its pending/created panel |
+| `client.js` | Everything: selection capture, the quote, the menu, the sidebar page type, its toolbar, and the inherited-prefix folding |
 | `index.js` | Host half — intentionally empty; the feature is entirely Client-side |
 | `cordis.patch.yml` | Inserts the plugin row so the Client module loads |
 | `package.json` | Bundle manifest, `dsh.client` declaration, peer packages |
-| `check.mjs` | Headless check: bundle registration, quote formatting, page-type and panel wiring (`node check.mjs`) |
+| `check.mjs` | Headless check: registration, quote and naming seams, page type, tab chip, pending panel (`node check.mjs`) |
 
 ## How it fits the host
 
@@ -90,11 +101,13 @@ client-only changes need no `dsh web` restart.
 | `[data-conversation-session]` | Reading the session id when the list snapshot has no `current` |
 | `[data-sidebar-right-*]` | Keeping sidebar selections out of the quote menu |
 | `ctx.sessions.fork` / `retain` / `binding.session` | Creating the child on send, renaming it, sending its first prompt |
-| `ctx.sessions.list` | Counting a parent's existing `sidechat-*` children for the next title |
-| `ctx.sidebarRight.openTab` + `ctx.sidebarRightTabs` | Opening the side-chat page (`multiple: false`, so reopening reveals it and refreshes its params); the type's `guide` entry is how the page opens with no quote |
-| `sidebar.right.pane.tab` + `sidebar.chat.conversation` | Rendering the panel: pending composer, then the shipped conversation |
-| `sessionId` (injected into a session-scoped slot) | The parent of a page opened from the guide, which carries no navigation params |
-| `ctx.conversation.input.for(scope).setDraft` | Writing the quote into the main chat's or the existing side chat's composer |
+| `ctx.sessions.binding().eventSource` | Telling which turns a fresh fork inherited (the child's window ∩ its parent's) |
+| `ctx.sessions.list` | Numbering side chats and reading the main chat's title |
+| `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` | Opening a page per side chat, rewriting its params in place, and finding the open one |
+| `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
+| `sidebar.chat.conversation` | Rendering the shipped conversation inside the panel |
+| `ctx.get('uiWorkspace').archiveSession` | `Reset side chat` archiving the chat it replaces |
+| `ctx.conversation.input.for(scope).setDraft` / `focus` | Writing the quote into a composer and handing it the keyboard |
 
 These are internal seams, not a public contract: if the host renames one, the
 affected leg degrades (no menu, or an error line in the panel) rather than
@@ -106,24 +119,26 @@ crashing the page.
 node check.mjs
 ```
 
-Covers the bundle registration, the quote, composer-draft and draft-append
-seams, zh/en key parity, the page-type registration (`multiple: false` and its
-guide entry), the primary hover fill, and the panel rendered both from a restored
-tab's navigation params and from a guide opening that carries none.
+Covers the bundle registration, the quote and composer-draft seams, the naming
+rule (`sidechat-<n>-<title>`, with the directory fallback), side-chat numbering,
+zh/en key parity, the page-type registration (`multiple: true`, its guide entry,
+its tab chip), the pending panel for both a menu-opened and a guide-opened page,
+the primary hover fill, and the inherited-prefix collapse rule.
 
-The DOM layer was additionally driven once through headless Chrome with a
-scratch harness (not committed — it needs a local Chrome plus `puppeteer-core`):
-selection in the main chat yields exactly the two options, a sidebar selection
-yields none, a sidebar mousedown is not cancelled, `Send to main chat` appends
-the quote after one blank line and a trailing newline and then focuses the
-composer (in that order), `Send to side chat` appends the same, focuses the
-pending composer with the caret after the quote, and forks nothing, sending the
-pending panel forks once, titles the child `sidechat-N`, and prompts it, a quote
-for an already-created side chat refocuses that conversation's composer, and a
-guide-opened empty composer typed into forks the pane's session and creates
-`sidechat-1`. The real host's fork/rename/prompt RPCs and the live sidebar
-markers were read from the host sources, not exercised against a running GUI — a
-manual pass on the real page is still worth doing.
+The DOM layer was additionally driven through headless Chrome with a scratch
+harness (not committed — it needs a local Chrome plus `puppeteer-core`): the
+two-item menu, a sidebar selection yielding none, a sidebar mousedown not being
+cancelled, `Send to main chat` appending after one blank line with a trailing
+newline and then focusing the composer, `Send to side chat` opening a page when
+none is up, sending that page forking once and titling the child
+`sidechat-1-Main chat title`, the inherited turns being marked and folded with a
+working toggle, a further quote routing into the open side chat's composer
+instead of opening another page, `Reset side chat` archiving the child and
+returning the page to a focused empty composer, and `New side chat` opening a
+second page with its own id and number. The real host's fork/rename/prompt and
+archive RPCs and the live sidebar markers were read from the host sources, not
+exercised against a running GUI — a manual pass on the real page is still worth
+doing.
 
 ## License
 

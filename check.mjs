@@ -1,7 +1,8 @@
 /**
  * Runnable check for the client bundle: it must register one factory under the
- * package id, expose the pure quote seams, register the side-chat page type
- * (single page per pane), and render the pending panel from a tab's params.
+ * package id, expose the pure quote and naming seams, register the side-chat
+ * page type (one page per side chat, plus its guide entry and tab chip), and
+ * render the pending panel for both a menu-opened and a guide-opened page.
  * Run: node check.mjs
  */
 import assert from 'node:assert/strict';
@@ -26,11 +27,11 @@ assert.equal(loads.length, 1, 'exactly one module registration');
 assert.equal(loads[0].id, 'dsh-annotate-sidechat', 'factory id is the package name');
 
 const React = {
-  createElement: (type, props, ...children) => ({ type, props, children }),
+  createElement: (type, props, ...children) => ({ type, props: props || {}, children }),
   useEffect: () => {},
   useLayoutEffect: () => {},
   useRef: () => ({ current: null }),
-  useState: (value) => [value, () => {}],
+  useState: (value) => [typeof value === 'function' ? value() : value, () => {}],
   useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
 };
 
@@ -39,8 +40,22 @@ const plugin = loads[0].factory((name) => {
   return React;
 });
 
+/** Depth-first search of a rendered tree. */
+function find(node, predicate) {
+  if (node === null || node === undefined || typeof node !== 'object') return undefined;
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const hit = find(child, predicate);
+      if (hit !== undefined) return hit;
+    }
+    return undefined;
+  }
+  if (typeof node.type === 'string' && predicate(node)) return node;
+  return find(node.children, predicate);
+}
+
 // ── the quote the two menu entries carry ────────────────────────────────────
-const { locationLine, quoteText, draftQuote, appendDraft } = plugin.__test;
+const { locationLine, quoteText, draftQuote, appendDraft, sideChatTitle, nextSideChatIndex } = plugin.__test;
 
 assert.equal(
   locationLine({ part: 'response', turn: 3, block: 'paragraph 2' }),
@@ -65,6 +80,11 @@ assert.equal(appendDraft('typed', 'q'), 'typed\n\nq', 'existing text keeps one b
 // fresh line so the caret waits for the user's own words.
 assert.equal(draftQuote({ text: 'x', turn: 2 }), quoteText({ text: 'x', turn: 2 }) + '\n');
 assert.ok(draftQuote({ text: 'x' }).endsWith('> x\n'), 'the composer draft ends with one newline');
+
+// ── naming: sidechat-<n>-<main chat title> ─────────────────────────────────
+assert.equal(sideChatTitle(1, 'Fix the login timeout', '/tmp/repo'), 'sidechat-1-Fix the login timeout');
+assert.equal(sideChatTitle(2, '   ', '/tmp/my-repo'), 'sidechat-2-my-repo', 'no title falls back to the directory');
+assert.equal(sideChatTitle(3, '', ''), 'sidechat-3', 'no title and no directory leaves the number');
 
 // ── registration ────────────────────────────────────────────────────────────
 const disposers = [];
@@ -99,11 +119,20 @@ const ctx = {
   },
   locale: {
     register: (namespace, dict) => { dictionaries[namespace] = dict; },
-    bind: () => (key) => key,
+    bind: () => (key, params) => (params === undefined ? key : `${key}:${JSON.stringify(params)}`),
   },
   sessions: {
-    list: { getSnapshot: () => ({ ids: [], byId: {}, current: 'parent-1' }) },
+    list: { getSnapshot: () => ({
+      current: 'parent-1',
+      ids: ['parent-1', 'child-1', 'child-2'],
+      byId: {
+        'parent-1': { id: 'parent-1', cwd: '/tmp/repo', title: 'Main chat title' },
+        'child-1': { id: 'child-1', parentId: 'parent-1', title: 'sidechat-1-Main chat title' },
+        'child-2': { id: 'child-2', parentId: 'parent-1', title: 'sidechat-2-Main chat title' },
+      },
+    }) },
     scope: () => undefined,
+    binding: () => undefined,
     retain: () => { throw new Error('retain must not run before a send'); },
   },
   get: () => undefined,
@@ -113,7 +142,7 @@ plugin.apply(ctx);
 
 assert.equal(registered.length, 1, 'one page type registered');
 assert.equal(registered[0].kind, 'annotate-sidechat-note');
-assert.equal(registered[0].multiple, false, 'one side chat per session pane');
+assert.equal(registered[0].multiple, true, 'each side chat is its own page');
 assert.equal(registered[0].guide.length, 1, 'the guide offers the page, so it opens without a quote');
 assert.equal(registered[0].guide[0].id, 'dsh-annotate-sidechat:note');
 assert.equal(typeof registered[0].guide[0].title(), 'string');
@@ -122,42 +151,63 @@ assert.equal(typeof registered[0].guide[0].description(), 'string');
 const zhKeys = Object.keys(dictionaries.annotateSidechat.zh).sort();
 const enKeys = Object.keys(dictionaries.annotateSidechat.en).sort();
 assert.deepEqual(zhKeys, enKeys, 'zh/en dictionaries cover the same keys');
-assert.ok(zhKeys.includes('action.toMain') && zhKeys.includes('action.toSide'));
-assert.ok(zhKeys.includes('guide.description'), 'the guide entry has copy');
+for (const key of ['action.toMain', 'action.toSide', 'guide.description', 'sideChat.new', 'sideChat.reset', 'sideChat.chip']) {
+  assert.ok(zhKeys.includes(key), `dictionary carries ${key}`);
+}
 
 const body = slots.find((entry) => entry.options.name === 'sidebar.right.pane.tab');
+const chip = slots.find((entry) => entry.options.name === 'sidebar.right.pane.tab.title');
 assert.ok(body !== undefined, 'the pane tab body is registered');
+assert.ok(chip !== undefined, 'the tab chip is registered');
 assert.equal(body.options.key, 'dsh-annotate-sidechat:note');
 
 const injected = body.options.inject('parent-1');
 assert.equal(typeof injected.sendSideChat, 'function', 'the body can send the pending panel');
+assert.equal(typeof injected.newSideChat, 'function', 'the body can open another side chat');
+assert.equal(typeof injected.resetSideChat, 'function', 'the body can reset its side chat');
 assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane session');
 
-// A restored tab carries its draft in navigation params; the panel renders it.
-const tree = body.component({
-  ...injected,
-  t: (key) => key,
-  useTabInfo: () => ({ tab: { navigation: { params: { parentId: 'parent-1', draft: 'Quoted from the assistant' } } } }),
-  renderSlot: () => null,
-  SessionProvider: () => null,
-});
-assert.equal(tree.props.className, 'dsh-note-panel', 'an uncreated side chat renders the pending panel');
-assert.equal(tree.children[2].props.value, 'Quoted from the assistant', 'the panel restores the quoted draft');
-assert.equal(typeof tree.children[2].props.ref, 'object', 'the pending composer is ref-wired for focus');
+// ── numbering counts the parent's side chats, sessions and pages alike ──────
+assert.equal(nextSideChatIndex(ctx, injected.chats, 'parent-1'), 3, 'two children in the list ⇒ next is 3');
+injected.chats.create('parent-1');
+assert.equal(nextSideChatIndex(ctx, injected.chats, 'parent-1'), 4, 'a live page pushes the number up too');
+assert.equal(nextSideChatIndex(ctx, injected.chats, 'other'), 1, 'another parent starts at 1');
 
-// A page opened from the guide carries no params at all: the pane's session is
-// the parent, and the composer starts empty — the user just types into it.
-const bare = slots.find((entry) => entry.options.name === 'sidebar.right.pane.tab');
-const bareTree = bare.component({
-  ...body.options.inject('pane-session'),
-  t: (key) => key,
-  useTabInfo: () => ({ tab: { navigation: {} } }),
+// ── the pending panel: a menu-opened page restores its draft ───────────────
+const panelOf = (params, sessionId, tabId = 'tab-1') => body.component({
+  ...body.options.inject(sessionId),
+  t: (key, extra) => (extra === undefined ? key : `${key}${JSON.stringify(extra)}`),
+  useTabInfo: () => ({ tab: { id: tabId, navigation: { params } } }),
   renderSlot: () => null,
   SessionProvider: () => null,
 });
+
+const tree = panelOf({ id: 'note-a', parentId: 'parent-1', index: 1, draft: 'Quoted from the assistant' }, 'parent-1');
+assert.equal(tree.props.className, 'dsh-note-panel', 'an uncreated side chat renders the pending panel');
+const textarea = find(tree, (node) => node.type === 'textarea');
+assert.equal(textarea.props.value, 'Quoted from the assistant', 'the panel restores the quoted draft');
+assert.equal(textarea.props.disabled, false, 'the empty composer is typable');
+assert.equal(typeof textarea.props.ref, 'object', 'the pending composer is ref-wired for focus');
+const toolLabels = find(tree, (node) => node.type === 'div' && node.props.className === 'dsh-note-tools')
+  .children.filter(Boolean).map((button) => button.children[0]);
+assert.deepEqual(toolLabels, ['sideChat.new', 'sideChat.reset'], 'the toolbar offers new and reset');
+
+// ── a page opened from the guide mints its own side chat ───────────────────
+const bareTree = panelOf({}, 'pane-session', 'tab-2');
 assert.equal(bareTree.props.className, 'dsh-note-panel', 'a guide-opened page shows the composer');
-assert.equal(bareTree.children[2].props.value, '', 'the guide-opened composer starts empty');
-assert.equal(bareTree.children[2].props.disabled, false, 'the empty composer is typable');
+const bareTextarea = find(bareTree, (node) => node.type === 'textarea');
+assert.equal(bareTextarea.props.value, '', 'the guide-opened composer starts empty');
+assert.equal(bareTextarea.props.disabled, false, 'its composer is typable without any quote');
+const bareTitle = find(bareTree, (node) => node.type === 'div' && node.props.className === 'dsh-note-panelTitle');
+assert.equal(bareTitle.children[0], 'sideChat.pendingTitle', 'it is a new side chat');
+
+// ── the chip names the page's side chat ────────────────────────────────────
+const chipTree = chip.component({
+  ...chip.options.inject('parent-1'),
+  t: (key, extra) => `${key}${JSON.stringify(extra)}`,
+  useTabInfo: () => ({ tab: { id: 'tab-1', navigation: { params: { id: 'note-a', index: 1 } } } }),
+});
+assert.equal(chipTree.children[0], 'sideChat.chip{"index":1}', 'the chip shows the side chat number');
 
 for (const dispose of disposers.reverse()) dispose();
 
@@ -173,5 +223,13 @@ assert.match(
   'the primary hover restates the brand fill',
 );
 assert.ok(!source.includes('filter: brightness'), 'the primary hover no longer washes toward white');
+
+// The inherited prefix is folded by CSS alone, so it stays folded through
+// re-renders and copied/moved nodes.
+assert.match(
+  source,
+  /\.dsh-note-sideBody\[data-dsh-sidechat-collapsed\]\s*\[data-dsh-sidechat-inherited\]\s*\{\s*display:\s*none;\s*\}/,
+  'the inherited prefix has a collapse rule',
+);
 
 console.log('ok — dsh-annotate-sidechat client bundle');
