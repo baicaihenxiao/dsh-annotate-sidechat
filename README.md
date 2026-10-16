@@ -3,14 +3,19 @@
 A DeepSeek Harness (DSH) Web plugin: **select text in an assistant reply, then
 send the located quote to the main chat or to a side chat**.
 
+本插件参考 [dsh-sidenote](https://github.com/g-yixuan/dsh-sidenote)，是该插件的简化版和修改版
+(This plugin takes [dsh-sidenote](https://github.com/g-yixuan/dsh-sidenote) as a
+reference; it is a simplified and modified version of it).
+
 ```
 划选 assistant 回复  →  两个选项：Send to main chat / Send to side chat
                         ├─ 主对话：引用内容追加到输入框（空一行，末尾换行，光标到位）
                         └─ 侧边对话：引用进入当前打开的 sidechat，没有就新建一个
 ```
 
-> **Status: 0.1.0 — checked headlessly (`node check.mjs`), not yet verified in a
-> browser.** See [Checks](#checks).
+> **Status: 0.1.0 — checked headlessly (`node check.mjs`, including a replay of
+> its slot registrations against the host's real slot registry), not yet
+> verified in a browser.** See [Checks](#checks).
 
 ## What it does
 
@@ -55,7 +60,10 @@ send the located quote to the main chat or to a side chat**.
    once when the side chat is created (the reader is session-addressed, so a chat
    switch cannot hand a new side chat the previous project's history) and
    rendered in the main chat's own markup (markdown, code, layout) rather than as
-   a flattened summary. The area opens at the end of that history, the way a sent
+   a flattened summary. That markup is made inert before it is shown again —
+   scripts, embeds, event handlers and `javascript:` links are dropped, and so
+   are the host's turn and anchor markers, which must stay unique to the live
+   transcript. The area opens at the end of that history, the way a sent
    chat's transcript does, so the newest turns sit right above the composer.
 6. **The chat is created on send, not on click.** Until a composer is sent, the
    page is a plain editable draft and **no chat exists** in the session list.
@@ -63,9 +71,15 @@ send the located quote to the main chat or to a side chat**.
    host cuts at the main chat's **last completed turn** — a turn still being
    written is never inherited), titles the child
    `sidechat-<n>-<main chat title>`, and sends the draft as its first message.
+   If the title or the first message fails, the fork is archived again, so a
+   failed send never leaves an unlinked copy of the main chat in the list; a
+   quote sent to the page while the chat was being created moves on to the new
+   chat's own composer.
 7. **The inherited transcript is folded away.** A fork carries a copy of the main
    chat; everything in the panel *before this side chat's own first message* is
-   collapsed and only shown when you ask for it. (When that message is not on the
+   collapsed and only shown when you ask for it. (An inherited message that quoted
+   the same spot is never taken for it: the match runs past the shared location
+   line and skips the turns the fork inherited. When that message is not on the
    page — an older side chat, say — the boundary the fork's event windows give is
    used instead.) Each side chat page has its own toolbar, left to right:
 
@@ -79,19 +93,26 @@ send the located quote to the main chat or to a side chat**.
    and the page is focused, so sending a quote is never invisible. When the
    sidebar cannot place a page yet (its surface mounts a moment after a session
    switch) the open is retried for ~1.5 s, and a sidebar that never mounts
-   reports it in the menu instead of doing nothing.
+   reports it in the menu instead of doing nothing. A quote aimed at a side chat
+   whose composer does not come up within ~5 s brings the menu back with an
+   error instead of disappearing.
 
 The side-chat panel is not a reimplementation: once the child exists, the panel
-declares the host's own `sidebar.chat.conversation` child slot and wraps it in
-the framework `SessionProvider`, so it renders the shipped conversation —
-message stream and composer included. Text inside that panel is the host's DOM:
-it stays selectable and copyable, and the sidebar is never quoted.
+declares its own `annotateSidechat.conversation` child slot, wraps it in the
+framework `SessionProvider`, and renders the host's `conversation.content`
+factory there — the shipped conversation, message stream and composer included.
+(It does not use the host's `sidebar.chat.conversation`: the built-in subagent
+chat owns that single slot, and the slot registry refuses a second declaration.)
+Text inside that panel is the host's DOM: it stays selectable and copyable, and
+the sidebar is never quoted.
 
 Nothing is written back into the annotated reply. A page carries its state
 (side-chat id, number, child, boundary, draft, snapshot) in its navigation
 params while it lives, and the plugin also keeps a small per-tab record in
-`localStorage` (`dsh-annotate-sidechat:page:<tabId>`, swept after a week and
-dropped when the tab closes): the sidebar persists its layouts but not those
+`localStorage` (`dsh-annotate-sidechat:page:<tabId>`, dropped when the tab
+closes, and on load when no saved layout holds that tab any more — never by
+age, so a side chat in a chat left alone for weeks still knows itself): the
+sidebar persists its layouts but not those
 params, so without it a reload would turn every side chat back into an empty new
 one. On mount a page takes its identity from its params, else from that record,
 else mints a fresh side chat (the guide-opened case).
@@ -124,7 +145,7 @@ client-only changes need no `dsh web` restart.
 | `index.js` | Host half — intentionally empty; the feature is entirely Client-side |
 | `cordis.patch.yml` | Inserts the plugin row so the Client module loads |
 | `package.json` | Bundle manifest, `dsh.client` declaration, peer packages |
-| `check.mjs` | Headless check: registration, quote and naming seams, page type, tab chip, pending panel (`node check.mjs`) |
+| `check.mjs` | Headless check: registration, quote and naming seams, fold boundary, page type, tab chip, pending panel, and a replay against the host's real slot registry (`node check.mjs`) |
 
 ## How it fits the host
 
@@ -140,7 +161,8 @@ client-only changes need no `dsh web` restart.
 | `ctx.sessions.list` | Numbering side chats and reading the main chat's title |
 | `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` / `isExpanded` / `focus` / `registerCloseHandler` | Opening a page per side chat (retried while the surface mounts), rewriting its params in place, finding the open one, bringing it into view, and forgetting a closed page |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
-| `sidebar.chat.conversation` | Rendering the shipped conversation inside the panel |
+| `annotateSidechat.conversation` (own child slot) + `conversation.content` factory | Rendering the shipped conversation inside the panel |
+| `ctx.sidebarRight.openTabs` | Dropping the per-tab records of pages no saved layout holds |
 | `ctx.get('uiWorkspace').archiveSession` | `Reset side chat` archiving the chat it replaces |
 | `ctx.conversation.input.for(scope).setDraft` / `focus` | Writing the quote into a composer and handing it the keyboard |
 
@@ -161,7 +183,15 @@ its tab chip), the pending panel for both a menu-opened and a guide-opened page
 (Reset left of New, each with its own glyph, class and tooltip — caution tone
 for Reset, brand tone for New — and a transcript that takes the room above a
 content-sized composer card whose rows scroll inside it), the primary hover
-fill, and the inherited-prefix collapse rule.
+fill, the inherited-prefix collapse rule, and a fold boundary that an inherited
+quote of the same spot cannot capture.
+
+With a local `dsh` install the check also replays every slot registration this
+plugin makes against the host's real `SlotCore`
+(`@deepseek-ai/dsh-client-ui-slots`, found next to the `dsh` binary), beside the
+built-in subagent chat's, in both load orders — the stubs above would accept a
+second declaration that the real registry refuses. Without `dsh` on the `PATH`
+that step is skipped and the check says so.
 
 The DOM layer was additionally driven through headless Chrome with a scratch
 harness (not committed — it needs a local Chrome plus `puppeteer-core`): the

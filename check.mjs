@@ -6,7 +6,10 @@
  * Run: node check.mjs
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const source = readFileSync(new URL('./client.js', import.meta.url), 'utf8');
 const loads = [];
@@ -24,7 +27,10 @@ globalThis.window = {
 };
 globalThis.document = {
   querySelector: () => null,
-  createElement: () => ({ dataset: {}, remove() {}, setAttribute() {}, append() {}, textContent: '' }),
+  // A template keeps its markup as is here; the real parse runs in a browser.
+  createElement: (tag) => (tag === 'template'
+    ? { innerHTML: '', content: { querySelectorAll: () => [] } }
+    : { dataset: {}, remove() {}, setAttribute() {}, append() {}, textContent: '' }),
   head: { append() {} },
   body: { append() {} },
   addEventListener() {},
@@ -40,6 +46,7 @@ const React = {
   createElement: (type, props, ...children) => ({ type, props: props || {}, children }),
   useEffect: () => {},
   useLayoutEffect: () => {},
+  useMemo: (fn) => fn(),
   useRef: () => ({ current: null }),
   useState: (value) => [typeof value === 'function' ? value() : value, () => {}],
   useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
@@ -95,6 +102,21 @@ assert.ok(draftQuote({ text: 'x' }).endsWith('> x\n\n'), 'the composer draft end
 assert.equal(sideChatTitle(1, 'Fix the login timeout', '/tmp/repo'), 'sidechat-1-Fix the login timeout');
 assert.equal(sideChatTitle(2, '   ', '/tmp/my-repo'), 'sidechat-2-my-repo', 'no title falls back to the directory');
 assert.equal(sideChatTitle(3, '', ''), 'sidechat-3', 'no title and no directory leaves the number');
+
+// ── the fold boundary finds this side chat's own first message ─────────────
+// Every quote opens with the same location line, so an inherited message that
+// quoted the same spot looks alike for ~60 characters.
+const { ownMessageIndex } = plugin.__test;
+const row = (kind, turn, text) => ({
+  getAttribute: (name) => ({ 'data-chat-flow-kind': kind, 'data-chat-turn': String(turn) })[name] ?? null,
+  textContent: text,
+});
+const sent = draftQuote({ text: 'The first point is the cache', turn: 3, block: 'paragraph 2' }) + 'why?';
+const earlier = draftQuote({ text: 'The first point is the cache', turn: 3, block: 'paragraph 2' }) + 'explain more';
+const rows = [row('user', 3, earlier), row('assistant-step', 3, 'answer'), row('user', 5, sent)];
+assert.equal(ownMessageIndex(rows, sent, 4), 2, 'an inherited quote of the same spot is never the cut');
+assert.equal(ownMessageIndex(rows, sent, null), 2, 'without a turn boundary the longer needle still tells them apart');
+assert.equal(ownMessageIndex(rows, 'not on the page', 4), -1, 'a message not on the page is not found');
 
 // ── registration ────────────────────────────────────────────────────────────
 const disposers = [];
@@ -167,6 +189,41 @@ const enKeys = Object.keys(dictionaries.annotateSidechat.en).sort();
 assert.deepEqual(zhKeys, enKeys, 'zh/en dictionaries cover the same keys');
 for (const key of ['action.toMain', 'action.toSide', 'guide.description', 'sideChat.new', 'sideChat.reset', 'sideChat.chip']) {
   assert.ok(zhKeys.includes(key), `dictionary carries ${key}`);
+}
+
+// ── against the host's real slot registry ──────────────────────────────────
+// The stubs accept anything; the host's SlotCore refuses a second declaration
+// of a child slot and a second occupant of a single one. ui-subagent ships in
+// every Web profile and owns `sidebar.chat.conversation`, so this plugin's
+// registrations must fit beside its own, in either load order. Needs a local
+// `dsh` install; without one the replay is skipped, and says so.
+function hostSlotsModule() {
+  try {
+    const bin = realpathSync(execFileSync('which', ['dsh'], { encoding: 'utf8' }).trim());
+    const file = join(dirname(bin), '..', 'node_modules', '@deepseek-ai', 'dsh-client-ui-slots', 'lib', 'index.js');
+    return existsSync(file) ? file : undefined;
+  } catch (error) { return undefined; }
+}
+const slotsModule = hostSlotsModule();
+if (slotsModule === undefined) {
+  console.log('skip — no local dsh install: the real slot registry replay did not run');
+} else {
+  const { SlotCore } = await import(pathToFileURL(slotsModule).href);
+  const subagent = [
+    [{ name: 'sidebar.right.pane.tab', key: 'subagentchat', children: { 'sidebar.chat.conversation': { kind: 'single', scope: 'session' } } }, () => null],
+    [{ name: 'sidebar.chat.conversation' }, () => null],
+  ];
+  const ours = slots.map((entry) => [entry.options, entry.component]);
+  for (const order of [[...subagent, ...ours], [...ours, ...subagent]]) {
+    const core = new SlotCore();
+    core.register({ name: 'root', children: {
+      'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session' },
+      'sidebar.right.pane.tab.title': { kind: 'keyed', scope: 'session' },
+    } }, () => null);
+    for (const [options, component] of order) {
+      assert.doesNotThrow(() => core.register(options, component), `registering ${options.name} beside ui-subagent`);
+    }
+  }
 }
 
 const body = slots.find((entry) => entry.options.name === 'sidebar.right.pane.tab');

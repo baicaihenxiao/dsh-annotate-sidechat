@@ -4,13 +4,20 @@
   "private": true,
   "type": "module",
   "description": "Select text in an assistant reply and send the located quote to the main composer or to a side chat created on send.",
+  "license": "MIT",
+  "author": "baicaihenxiao",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/baicaihenxiao/dsh-annotate-sidechat.git"
+  },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-client-locale": "0.2.0-rc.2",
     "@deepseek-ai/dsh-client-ui-conversation": "0.2.0-rc.2",
-    "@deepseek-ai/dsh-client-ui-sidebar-right": "0.2.0-rc.2"
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.0-rc.2"
   },
   "exports": {
     ".": "./index.js",

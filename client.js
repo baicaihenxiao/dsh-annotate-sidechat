@@ -16,7 +16,7 @@
  * when its composer is sent: until then the page holds a plain draft and no
  * chat exists in the session list. The child is titled
  * `sidechat-<n>-<main chat title>` and rendered by the host's own
- * `sidebar.chat.conversation` slot, so the panel body IS the shipped
+ * `conversation.content` factory, so the panel body IS the shipped
  * conversation.
  *
  * Several side chats can be open at once (each page carries its own instance
@@ -53,6 +53,7 @@ window.__ModuleLoader__.load({
       'sideChat.new': '新建',
       'sideChat.newHint': '再开一个侧边对话',
       'sideChat.pendingPlaceholder': '输入内容，发送后新建 sidechat- 对话…',
+      'sideChat.quoteFailed': '无法写入侧边对话的输入框。',
       'sideChat.reset': '重置',
       'sideChat.resetFailed': '重置失败：{message}',
       'sideChat.resetHint': '归档当前对话，在本页重新开始',
@@ -76,6 +77,7 @@ window.__ModuleLoader__.load({
       'sideChat.new': 'New',
       'sideChat.newHint': 'Open another side chat',
       'sideChat.pendingPlaceholder': 'Type a message; sending creates a sidechat- chat…',
+      'sideChat.quoteFailed': 'The side chat composer could not be reached.',
       'sideChat.reset': 'Reset',
       'sideChat.resetFailed': 'Reset failed: {message}',
       'sideChat.resetHint': 'Archive this chat and start over in this page',
@@ -105,15 +107,18 @@ window.__ModuleLoader__.load({
     /** Tab type identity: the `sidebar.right.pane.tab` key and the page kind. */
     const TAB_ID = 'dsh-annotate-sidechat:note';
     const TAB_KIND = 'annotate-sidechat-note';
+    /** The page body's own conversation seat. Not the host's
+     *  `sidebar.chat.conversation`: ui-subagent declares and fills that one, and
+     *  the slot registry refuses a second declaration or occupant. */
+    const CONVERSATION_SLOT = 'annotateSidechat.conversation';
     /** Side-chat titles all start here; the number after it is the chat's index. */
     const TITLE_PREFIX = 'sidechat-';
     /** Plugin-owned per-page memory. The sidebar persists its layout (ids and
      *  addresses) but not the navigation params a page was opened with, so on
      *  reload a page would forget which side chat it is, what it inherited and
      *  what was typed into it. Records are keyed by the tab's own id, which the
-     *  layout does keep, and swept by age. */
+     *  layout does keep, and dropped once no saved layout holds that tab. */
     const PAGE_PREFIX = 'dsh-annotate-sidechat:page:';
-    const PAGE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
     const PAGE_WRITE_DELAY = 300;
     const pageRecords = new Map();
 
@@ -133,7 +138,6 @@ window.__ModuleLoader__.load({
     function writePage(tabId, entry) {
       if (typeof tabId !== 'string' || tabId === '' || typeof entry.id !== 'string' || entry.id === '') return;
       const record = {
-        at: Date.now(),
         id: entry.id,
         parentId: entry.parentId,
         index: entry.index,
@@ -153,17 +157,19 @@ window.__ModuleLoader__.load({
       try { window.localStorage.removeItem(PAGE_PREFIX + tabId); } catch (error) { /* nothing to forget */ }
     }
 
-    /** Drop the records no tab has touched for a week; each carries markup. */
-    function sweepPages() {
-      const cutoff = Date.now() - PAGE_MAX_AGE;
+    /**
+     * Drop the records whose tab no saved or adopted layout holds any more — a
+     * page closed while this plugin was not listening. Age is no signal: a page
+     * in a chat nobody opened for a month is still that side chat.
+     * @param openTabs - the sidebar's tab inventory, read from every saved layout.
+     */
+    function sweepPages(openTabs) {
+      const live = new Set(openTabs.map((tab) => tab.tabId));
       try {
         const stale = [];
         for (let index = 0; index < window.localStorage.length; index += 1) {
           const key = window.localStorage.key(index);
-          if (key === null || !key.startsWith(PAGE_PREFIX)) continue;
-          let record = null;
-          try { record = JSON.parse(window.localStorage.getItem(key)); } catch (error) { record = null; }
-          if (record === null || typeof record.at !== 'number' || record.at < cutoff) stale.push(key);
+          if (key !== null && key.startsWith(PAGE_PREFIX) && !live.has(key.slice(PAGE_PREFIX.length))) stale.push(key);
         }
         for (const key of stale) window.localStorage.removeItem(key);
       } catch (error) { /* storage unavailable */ }
@@ -386,12 +392,21 @@ window.__ModuleLoader__.load({
      * items, or -1 when it is not on the page. Everything before it is what the
      * fork inherited from the main chat — the one boundary that needs no turn
      * numbers, no event windows, and no host cooperation.
+     *
+     * Every quote opens with the same location line, so an inherited message
+     * quoting the same spot reads alike for its first ~60 characters: the
+     * needle runs well past it, and a known turn boundary rules out every
+     * inherited row.
      */
-    function ownMessageIndex(items, first) {
-      const needle = normalizeText(first).slice(0, 60);
+    function ownMessageIndex(items, first, boundaryTurn) {
+      const needle = normalizeText(first).slice(0, 200);
       if (needle === '') return -1;
-      return items.findIndex((item) => item.getAttribute('data-chat-flow-kind') === 'user'
-        && normalizeText(item.textContent).includes(needle));
+      return items.findIndex((item) => {
+        if (item.getAttribute('data-chat-flow-kind') !== 'user') return false;
+        const turn = itemTurn(item);
+        if (typeof boundaryTurn === 'number' && turn !== undefined && turn <= boundaryTurn) return false;
+        return normalizeText(item.textContent).includes(needle);
+      });
     }
 
     /** `draft` + one blank line + `text`; `text` alone when the draft is empty. */
@@ -450,6 +465,8 @@ window.__ModuleLoader__.load({
         }, PAGE_WRITE_DELAY));
       };
       const store = {
+        // No `this`: handed to `useSyncExternalStore` as is, one stable function,
+        // so a re-render never resubscribes.
         subscribe(fn) { listeners.add(fn); return () => { listeners.delete(fn); }; },
         get(id) {
           if (typeof id !== 'string' || id === '') return EMPTY;
@@ -494,7 +511,9 @@ window.__ModuleLoader__.load({
             inherited: captureInherited(ctx.sessions, parentId),
           };
           entries.set(id, entry);
-          notify();
+          // `forTab` mints during a page body's render; telling the other
+          // subscribers then would update them mid-render, so wait for it to end.
+          queueMicrotask(notify);
           return entry;
         },
         bindTab(tabId, id) {
@@ -670,6 +689,36 @@ window.__ModuleLoader__.load({
       };
     }
 
+    /** Row markers the host's CSS styles by; the rest stay unique to the live transcript. */
+    const STYLED_CHAT_ATTRIBUTES = new Set(['data-chat-flow-kind', 'data-chat-group-part']);
+    const URL_ATTRIBUTES = new Set(['href', 'src', 'xlink:href', 'action', 'formaction']);
+
+    /**
+     * Captured rows made inert before they are shown again. The markup comes
+     * back from page params or localStorage, so anything that could run is
+     * dropped, and so are the host's turn and anchor markers, which the host
+     * looks up document-wide. Parsed in a template, whose content never loads
+     * or runs anything.
+     */
+    function inertMarkup(html) {
+      if (html === '') return '';
+      const template = document.createElement('template');
+      template.innerHTML = html;
+      const root = template.content;
+      for (const element of root.querySelectorAll('script, iframe, object, embed, link, meta, style, base')) element.remove();
+      for (const element of root.querySelectorAll('*')) {
+        for (const name of element.getAttributeNames()) {
+          const lower = name.toLowerCase();
+          if (lower.startsWith('on') || lower === 'srcdoc'
+            || (lower.startsWith('data-chat-') && !STYLED_CHAT_ATTRIBUTES.has(lower))
+            || (URL_ATTRIBUTES.has(lower) && /^\s*javascript:/i.test(element.getAttribute(name)))) {
+            element.removeAttribute(name);
+          }
+        }
+      }
+      return template.innerHTML;
+    }
+
     /** One durable-window read of a retained session, for the fork boundary. */
     function windowEntries(ctx, sessionId) {
       try {
@@ -816,9 +865,10 @@ window.__ModuleLoader__.load({
       // No explicit boundary: the host cuts at the main chat's last completed
       // turn, so a side chat never inherits a turn that is still being written.
       const childId = await ctx.sessions.fork({ sessionId: parentId });
-      const reference = ctx.sessions.retain(childId, { source: 'sidebarChat' });
+      let reference;
       let handedOver = false;
       try {
+        reference = ctx.sessions.retain(childId, { source: 'sidebarChat' });
         await reference.ready;
         const session = reference.binding.session;
         const info = parentInfo(ctx, parentId);
@@ -836,14 +886,31 @@ window.__ModuleLoader__.load({
       } finally {
         // The panel retains the child for its own lifetime; hold ours briefly so
         // the generation survives the hand-over, then release.
-        if (handedOver) setTimeout(() => { try { reference.release(); } catch (error) { /* already released */ } }, 30000);
-        else { try { reference.release(); } catch (error) { /* already released */ } }
+        const release = () => { try { reference.release(); } catch (error) { /* already released */ } };
+        if (handedOver) setTimeout(release, 30000);
+        else {
+          if (reference !== undefined) release();
+          // The fork exists but never got its first message: archive it, or every
+          // failed send would leave an unlinked copy of the main chat behind.
+          archiveSession(ctx, childId).catch(() => { /* best effort */ });
+        }
       }
       return childId;
     }
 
+    /**
+     * Archive one session and stop its activity.
+     * @returns false when the workspace face is absent (nothing was archived).
+     */
+    async function archiveSession(ctx, sessionId) {
+      const workspace = ctx.get('uiWorkspace');
+      if (workspace === undefined || workspace === null || typeof workspace.archiveSession !== 'function') return false;
+      await workspace.archiveSession(sessionId, { stopActivity: true });
+      return true;
+    }
+
     /** Send one pending panel: this is what creates the chat. */
-    async function submitSideChat(ctx, chats, id) {
+    async function submitSideChat(ctx, chats, id, t) {
       const entry = chats.get(id);
       if (entry.id === '' || entry.busy) return;
       const text = entry.draft.trim();
@@ -853,9 +920,16 @@ window.__ModuleLoader__.load({
       try {
         const childId = await createSideChat(ctx, entry.parentId, text, index);
         const boundaryTurn = inheritedTurnBoundary(ctx, entry.parentId, childId);
+        // A quote sent here while the chat was being created was appended after
+        // the text that went out; it moves on to the new chat's own composer.
+        const now = chats.get(id).draft;
+        const late = now.startsWith(entry.draft) ? now.slice(entry.draft.length).trim() : '';
         chats.patch(id, { childId: childId, boundaryTurn: boundaryTurn, first: text, draft: '', busy: false, error: '' });
         // Record the child (and the boundary) in the page's own params.
         refreshSideChatPage(ctx, chats, id);
+        if (late !== '' && !(await writeDraft(ctx, childId, late + '\n\n', 25))) {
+          chats.patch(id, { error: t('sideChat.quoteFailed') });
+        }
       } catch (error) {
         chats.patch(id, { busy: false, error: String((error && error.message) || error) });
       }
@@ -866,14 +940,11 @@ window.__ModuleLoader__.load({
       const entry = chats.get(id);
       if (entry.id === '') return;
       if (entry.childId !== null) {
-        const workspace = ctx.get('uiWorkspace');
-        if (workspace !== undefined && workspace !== null && typeof workspace.archiveSession === 'function') {
-          try {
-            await workspace.archiveSession(entry.childId, { stopActivity: true });
-          } catch (error) {
-            chats.patch(id, { error: t('sideChat.resetFailed', { message: String((error && error.message) || error) }) });
-            return;
-          }
+        try {
+          await archiveSession(ctx, entry.childId);
+        } catch (error) {
+          chats.patch(id, { error: t('sideChat.resetFailed', { message: String((error && error.message) || error) }) });
+          return;
         }
       }
       // A fresh number: the archived chat keeps the old one, so titles stay
@@ -1139,9 +1210,13 @@ window.__ModuleLoader__.load({
         store.set({ pending: null, error: '' });
         if (target !== undefined && target.childId !== null) {
           // The chat exists: the quote joins that conversation's composer draft,
-          // and the composer takes the focus once the panel is up.
+          // and the composer takes the focus once the panel is up. A chat that
+          // takes too long to load gets the menu back with an error, rather
+          // than the quote vanishing.
           revealSideChat(ctx, chats, target);
-          void writeDraft(ctx, target.childId, text, 10);
+          if (!(await writeDraft(ctx, target.childId, text, 25))) {
+            store.set({ pending: selection, error: t('sideChat.quoteFailed') });
+          }
           return;
         }
         if (target !== undefined) {
@@ -1191,7 +1266,7 @@ window.__ModuleLoader__.load({
     function Overlay(props) {
       const t = props.t;
       const state = React.useSyncExternalStore(
-        (fn) => props.store.subscribe(fn),
+        props.store.subscribe,
         () => props.store.getSnapshot(),
       );
       const selection = state.pending;
@@ -1225,8 +1300,8 @@ window.__ModuleLoader__.load({
     /**
      * One side-chat page body. Before the page is sent it is a plain composer —
      * holding a quote when the menu opened it, empty when the sidebar's guide
-     * opened it, since a side chat needs no quote. Once sent it declares the
-     * host's `sidebar.chat.conversation` child slot and wraps it in the framework
+     * opened it, since a side chat needs no quote. Once sent it declares its own
+     * `CONVERSATION_SLOT` child slot and wraps it in the framework
      * `SessionProvider`, so the panel renders the shipped conversation (message
      * stream + composer) for the forked child, with the fork's inherited prefix
      * folded away.
@@ -1263,7 +1338,7 @@ window.__ModuleLoader__.load({
       });
       props.chats.bindTab(tabId, id);
       const entry = React.useSyncExternalStore(
-        (fn) => props.chats.subscribe(fn),
+        props.chats.subscribe,
         () => props.chats.get(id),
       );
       const childId = entry.childId;
@@ -1282,6 +1357,7 @@ window.__ModuleLoader__.load({
       const first = entry.first;
       const origin = entry.inherited;
       const originHtml = origin === null ? '' : origin.html;
+      const shownHtml = React.useMemo(() => inertMarkup(originHtml), [originHtml]);
       const cwd = typeof bag.cwd === 'string' ? bag.cwd : undefined;
       const [reference, setReference] = React.useState(null);
       const [failed, setFailed] = React.useState(false);
@@ -1337,7 +1413,7 @@ window.__ModuleLoader__.load({
         const mark = () => {
           frame = null;
           const items = Array.from(node.querySelectorAll('[data-chat-flow-key]'));
-          const cut = ownMessageIndex(items, first);
+          const cut = ownMessageIndex(items, first, boundaryTurn);
           const byTurn = cut < 0 && typeof boundaryTurn === 'number';
           const turns = new Set();
           let marked = 0;
@@ -1407,7 +1483,7 @@ window.__ModuleLoader__.load({
             ref: bodyRef,
             ...entry.collapsed ? { [COLLAPSED]: '' } : {},
           }, h(props.SessionProvider, { session: reference },
-            props.renderSlot('sidebar.chat.conversation', {}))),
+            props.renderSlot(CONVERSATION_SLOT, {}))),
         );
       }
 
@@ -1426,7 +1502,7 @@ window.__ModuleLoader__.load({
                 h('div', {
                   key: 'rows',
                   className: origin.columnClass || '',
-                  dangerouslySetInnerHTML: { __html: origin.html },
+                  dangerouslySetInnerHTML: { __html: shownHtml },
                 }),
               ],
         ),
@@ -1475,7 +1551,7 @@ window.__ModuleLoader__.load({
       const bound = props.chats.idOfTab(tabId);
       const id = typeof bound === 'string' ? bound : (typeof bag.id === 'string' && bag.id !== '' ? bag.id : '');
       const entry = React.useSyncExternalStore(
-        (fn) => props.chats.subscribe(fn),
+        props.chats.subscribe,
         () => props.chats.get(id),
       );
       const stored = id === '' ? readPage(tabId) : null;
@@ -1485,10 +1561,17 @@ window.__ModuleLoader__.load({
       return h('span', null, props.t('sideChat.chip', { index: index }));
     }
 
+    /** The embedded conversation's one view, fixed to Chat. Module-level, so the
+     *  factory keeps the same component across renders instead of remounting it. */
+    function ChatView(viewProps) {
+      return viewProps.renderSlot('conversation.session', { view: 'chat' });
+    }
+
     /**
-     * The panel registered into the host's `sidebar.chat.conversation` slot: the
-     * standard session kit supplies `sessionId`, `useSession` and the factory
-     * renderer the shipped conversation content needs.
+     * The panel registered into this page's `CONVERSATION_SLOT`: the standard
+     * session kit supplies `sessionId` and the factory renderer the shipped
+     * conversation content needs. A fork always carries its inherited turns and
+     * its first message, so it is never blank and the phase is always active.
      */
     function SideChatPanel(props) {
       if (typeof props.sessionId !== 'string' || props.sessionId === '') {
@@ -1496,7 +1579,7 @@ window.__ModuleLoader__.load({
       }
       return props.renderFactorySlot('conversation.content',
         { variant: 'embedded', phase: 'active', hero: false },
-        { slots: { views: (viewProps) => viewProps.renderSlot('conversation.session', { view: 'chat' }) } });
+        { slots: { views: ChatView } });
     }
 
     // ── registration ────────────────────────────────────────────────────────
@@ -1509,6 +1592,7 @@ window.__ModuleLoader__.load({
         quoteText: quoteText,
         draftQuote: draftQuote,
         appendDraft: appendDraft,
+        ownMessageIndex: ownMessageIndex,
         selectionText: selectionText,
         capture: capture,
         sideChatTitle: sideChatTitle,
@@ -1518,7 +1602,6 @@ window.__ModuleLoader__.load({
         ctx.effect(() => ctx.locale.register(NS, { zh: zh, en: en }), 'dsh-annotate-sidechat: dictionaries');
         const t = ctx.locale.bind(NS);
         const chats = createSideChats(ctx);
-        sweepPages();
 
         // The overlay is inert until the conversation has mounted once, so a
         // cold page does not install listeners the host would never feed.
@@ -1561,12 +1644,12 @@ window.__ModuleLoader__.load({
             chats: chats,
             newSideChat: (id) => newSideChat(ctx, chats, id),
             resetSideChat: (id) => resetSideChat(ctx, chats, id, t),
-            sendSideChat: (id) => { void submitSideChat(ctx, chats, id); },
+            sendSideChat: (id) => { void submitSideChat(ctx, chats, id, t); },
           };
           const disposeBody = ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
             name: 'sidebar.right.pane.tab',
             key: TAB_ID,
-            children: { 'sidebar.chat.conversation': { kind: 'single', scope: 'session' } },
+            children: { [CONVERSATION_SLOT]: { kind: 'single', scope: 'session' } },
             locale: NS,
             // Session-scoped slots hand the injector the pane's own session id.
             inject: (sessionId) => ({
@@ -1580,6 +1663,12 @@ window.__ModuleLoader__.load({
           const disposeClose = ctx.inject(['sidebarRight'], (scope) => {
             const sidebar = scope.get('sidebarRight');
             if (sidebar === undefined || sidebar === null || typeof sidebar.registerCloseHandler !== 'function') return;
+            // The inventory reads every saved layout before the service is
+            // published, so it already knows each tab a record could belong to.
+            const inventory = sidebar.openTabs;
+            if (inventory !== undefined && inventory !== null && typeof inventory.getSnapshot === 'function') {
+              try { sweepPages(inventory.getSnapshot()); } catch (error) { /* keep every record */ }
+            }
             const dispose = sidebar.registerCloseHandler(TAB_KIND, (sessionId, tab) => {
               forgetPage(tab === undefined || tab === null ? '' : tab.id);
             });
@@ -1591,8 +1680,8 @@ window.__ModuleLoader__.load({
             locale: NS,
             inject: () => ({ chats: chats }),
           }, SideChatChip));
-          const disposeChat = ctx.slots.inject('sidebar.chat.conversation', () => ctx.slots.register({
-            name: 'sidebar.chat.conversation',
+          const disposeChat = ctx.slots.inject(CONVERSATION_SLOT, () => ctx.slots.register({
+            name: CONVERSATION_SLOT,
             locale: NS,
           }, SideChatPanel));
           return () => { disposeChat(); disposeTitle(); disposeBody(); disposeClose(); disposeType(); };
