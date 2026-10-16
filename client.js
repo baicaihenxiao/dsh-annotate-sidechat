@@ -45,8 +45,10 @@ window.__ModuleLoader__.load({
     const NS = 'annotateSidechat';
 
     const zh = {
+      'action.cancel': '取消',
       'action.toChat': '发送到此对话',
       'action.toMain': '发送到主对话',
+      'action.toNewSide': '发送到新的侧边对话',
       'action.toSide': '发送到侧边对话',
       'guide.description': '不引用也能直接输入；发送后新建 sidechat- 对话',
       'mainChat.failed': '无法写入主对话的输入框。',
@@ -64,14 +66,17 @@ window.__ModuleLoader__.load({
       'sideChat.resetHint': '归档当前对话，在本页重新开始',
       'sideChat.send': '发送',
       'sideChat.showInherited': '显示继承内容',
+      'sideChat.staleQuote': '这段内容来自主对话第 {turn} 轮，而当前的 sidechat-{index} 是在第 {fork} 轮 fork 的，看不到这一轮及其上下文。要改为发送到一个新的侧边对话吗？新对话会从主对话最新的轮次 fork。',
       'sideChat.empty': '无法打开侧边对话。',
       'sideChat.working': '正在创建侧边对话…',
       'tab.title': '侧边对话',
     };
 
     const en = {
+      'action.cancel': 'Cancel',
       'action.toChat': 'Send to chat',
       'action.toMain': 'Send to main chat',
+      'action.toNewSide': 'Send to a new side chat',
       'action.toSide': 'Send to side chat',
       'guide.description': 'Type directly — no quote needed; sending creates a sidechat- chat',
       'mainChat.failed': 'The main chat composer could not be reached.',
@@ -89,6 +94,7 @@ window.__ModuleLoader__.load({
       'sideChat.resetHint': 'Archive this chat and start over in this page',
       'sideChat.send': 'Send',
       'sideChat.showInherited': 'Show inherited',
+      'sideChat.staleQuote': 'This passage is from turn {turn} of the main chat, but sidechat-{index} was forked at turn {fork}, so it has neither that turn nor its context. Send it to a new side chat instead? The new one forks from the main chat\'s latest turn.',
       'sideChat.empty': 'The side chat could not be opened.',
       'sideChat.working': 'Creating the side chat…',
       'tab.title': 'Side chat',
@@ -840,6 +846,36 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The last main-chat turn a sent side chat inherited: the fork's own record,
+     * else the highest turn its panel marked inherited. Null when neither tells.
+     */
+    function forkTurnOf(entry) {
+      if (typeof entry.boundaryTurn === 'number') return entry.boundaryTurn;
+      let last = null;
+      try {
+        for (const body of document.querySelectorAll('[' + SIDE_CHILD + ']')) {
+          if (body.getAttribute(SIDE_CHILD) !== entry.childId) continue;
+          for (const item of body.querySelectorAll('[' + INHERITED + ']')) {
+            const turn = itemTurn(item);
+            if (turn !== undefined && (last === null || turn > last)) last = turn;
+          }
+        }
+      } catch (error) { /* nothing on screen to read */ }
+      return last;
+    }
+
+    /**
+     * A quote from a main-chat turn the sent side chat never inherited — it was
+     * forked before that turn, so it would get the passage without its context.
+     * @returns what the notice tells the user, or null when the quote fits.
+     */
+    function staleQuote(selection, entry) {
+      if (entry.childId === null || typeof selection.turn !== 'number') return null;
+      const fork = forkTurnOf(entry);
+      return fork !== null && selection.turn > fork ? { turn: selection.turn, fork: fork, index: entry.index } : null;
+    }
+
+    /**
      * Rewrite one side chat's page parameters in place — the tab takes its own
      * place back — so a reloaded page restores the chat it was showing.
      */
@@ -1003,6 +1039,9 @@ window.__ModuleLoader__.load({
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
 }
 .dsh-note-menu { display: flex; align-items: center; gap: 4px; }
+/* The notice reads as a short paragraph, its answers right-aligned under it. */
+.dsh-note-notice { max-width: 300px; padding: 2px 4px; white-space: normal; }
+.dsh-note-noticeActions { justify-content: flex-end; }
 .dsh-note-btn {
   flex: 0 0 auto; padding: 3px 8px; font: inherit; white-space: nowrap; cursor: pointer; border-radius: 6px;
   border: 1px solid var(--dsw-alias-border-l1);
@@ -1175,6 +1214,9 @@ window.__ModuleLoader__.load({
 
       let debounce;
       const recompute = () => {
+        // A notice waits for its answer: the click that raised it still ends in
+        // a selection event, and only a click outside the card dismisses it.
+        if (store.getSnapshot().notice !== undefined) return;
         const next = capture();
         if (next === null) {
           if (store.getSnapshot().pending !== null) store.set({ pending: null, error: '' });
@@ -1224,6 +1266,10 @@ window.__ModuleLoader__.load({
         const activeId = activeSideChatId(ctx, chats);
         const active = activeId === undefined ? undefined : chats.get(activeId);
         const target = active !== undefined && active.id !== '' && active.parentId === parentId ? active : undefined;
+        // The open side chat was forked before the quoted turn: say so, and let
+        // the user pick a new side chat or nothing at all.
+        const notice = target === undefined ? null : staleQuote(selection, target);
+        if (notice !== null) { store.set({ pending: selection, error: '', notice: notice }); return; }
         clearSelection();
         store.set({ pending: null, error: '' });
         if (target !== undefined && target.childId !== null) {
@@ -1248,11 +1294,34 @@ window.__ModuleLoader__.load({
           });
           return;
         }
+        await openNewSideChat(parentId, selection);
+      }
+
+      /**
+       * A new side-chat page holding the quote. Like every side chat it forks
+       * when sent, from the main chat's latest completed turn.
+       */
+      async function openNewSideChat(parentId, selection) {
         const created = chats.create(parentId);
-        chats.patch(created.id, { draft: text });
+        chats.patch(created.id, { draft: draftQuote(selection) });
         if (!(await openSideChatPage(ctx, chats.get(created.id)))) {
           store.set({ pending: selection, error: t('sideChat.empty') });
         }
+      }
+
+      /** The notice's yes: the quote goes to a new side chat instead. */
+      async function toNewSide(selection) {
+        const parentId = currentSessionId(ctx);
+        if (parentId === '') { store.set({ pending: selection, error: t('sideChat.empty') }); return; }
+        clearSelection();
+        store.set({ pending: null, error: '' });
+        await openNewSideChat(parentId, selection);
+      }
+
+      /** The notice's no: nothing is sent; the card and the highlight go away. */
+      function cancel() {
+        clearSelection();
+        store.set({ pending: null, error: '' });
       }
 
       /**
@@ -1273,6 +1342,8 @@ window.__ModuleLoader__.load({
         toMain: (selection) => { void toMain(selection); },
         toSide: (selection) => { void toSide(selection); },
         toChat: (selection) => { void toChat(selection); },
+        toNewSide: (selection) => { void toNewSide(selection); },
+        cancel: cancel,
       }));
 
       document.addEventListener('selectionchange', schedule);
@@ -1295,7 +1366,8 @@ window.__ModuleLoader__.load({
 
     /**
      * The menu anchored under the selection: two items in the main chat, one —
-     * Send to chat — inside a sent side chat.
+     * Send to chat — inside a sent side chat. When a quote would reach a side
+     * chat forked before its turn, the card turns into a notice that asks first.
      */
     function Overlay(props) {
       const t = props.t;
@@ -1314,6 +1386,20 @@ window.__ModuleLoader__.load({
       });
 
       if (selection === null) return null;
+      const notice = state.notice;
+      if (notice !== undefined) {
+        return h('div', { className: 'dsh-note-card', ref: cardRef, [OURS]: '', role: 'alertdialog' },
+          h('div', { className: 'dsh-note-notice' }, t('sideChat.staleQuote', notice)),
+          h('div', { className: 'dsh-note-menu dsh-note-noticeActions' },
+            h('button', {
+              className: 'dsh-note-btn', type: 'button',
+              onClick: () => props.cancel(),
+            }, t('action.cancel')),
+            h('button', {
+              className: 'dsh-note-btn dsh-note-btn-primary', type: 'button',
+              onClick: () => props.toNewSide(selection),
+            }, t('action.toNewSide'))));
+      }
       return h('div', { className: 'dsh-note-card', ref: cardRef, [OURS]: '' },
         selection.side !== ''
           ? h('div', { className: 'dsh-note-menu' },
@@ -1636,6 +1722,7 @@ window.__ModuleLoader__.load({
         appendDraft: appendDraft,
         ownMessageIndex: ownMessageIndex,
         stepOf: stepOf,
+        staleQuote: staleQuote,
         Overlay: Overlay,
         selectionText: selectionText,
         capture: capture,

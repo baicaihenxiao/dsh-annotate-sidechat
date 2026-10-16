@@ -156,7 +156,7 @@ const menuOf = (pending, sent) => Overlay({
   toSide: (selection) => sent.push(['side', selection]),
   toChat: (selection) => sent.push(['chat', selection]),
 });
-const buttonsOf = (tree) => find(tree, (node) => node.props.className === 'dsh-note-menu').children
+const buttonsOf = (tree) => find(tree, (node) => String(node.props.className).split(' ').includes('dsh-note-menu')).children
   .filter((node) => node !== null && node !== undefined && node.type === 'button');
 const rect = { left: 0, bottom: 0 };
 const sentTo = [];
@@ -167,6 +167,38 @@ assert.equal(sentTo[0][0], 'chat', 'Send to chat sends the quote to that chat');
 assert.equal(sentTo[0][1].side, 'child-9', 'with the side chat it was selected in');
 assert.deepEqual(buttonsOf(menuOf({ text: 'x', rect, side: '' }, [])).map((button) => button.children[0]),
   ['action.toMain', 'action.toSide'], 'the main chat keeps its two items');
+
+// ── a quote from a turn the open side chat was forked before ───────────────
+const { staleQuote } = plugin.__test;
+const forkedAt2 = { childId: 'child-9', boundaryTurn: 2, index: 1 };
+assert.deepEqual(staleQuote({ turn: 4 }, forkedAt2), { turn: 4, fork: 2, index: 1 },
+  'a quote from turn 4 is news to a side chat forked at turn 2');
+assert.equal(staleQuote({ turn: 2 }, forkedAt2), null, 'a quote from a turn it inherited goes straight in');
+assert.equal(staleQuote({}, forkedAt2), null, 'a quote with no turn number is not second-guessed');
+assert.equal(staleQuote({ turn: 4 }, { ...forkedAt2, childId: null }), null, 'a pending page has no fork point yet');
+assert.equal(staleQuote({ turn: 4 }, { ...forkedAt2, boundaryTurn: null }), null,
+  'with no fork point on record or on screen, the quote is not second-guessed');
+
+const noticeOf = (pending, notice, sent) => Overlay({
+  t: (key) => key,
+  store: { subscribe: () => () => {}, getSnapshot: () => ({ pending, error: '', notice }) },
+  toMain: () => {}, toSide: () => {}, toChat: () => {},
+  toNewSide: (selection) => sent.push(['new', selection]),
+  cancel: () => sent.push(['cancel']),
+});
+const answered = [];
+const noticeCard = noticeOf({ text: 'x', rect, side: '', turn: 4 }, { turn: 4, fork: 2, index: 1 }, answered);
+assert.equal(noticeCard.props.role, 'alertdialog', 'the notice is announced as a question');
+assert.ok(find(noticeCard, (node) => node.props.className === 'dsh-note-notice') !== undefined, 'it explains the situation');
+const answers = buttonsOf(noticeCard);
+assert.deepEqual(answers.map((button) => button.children[0]), ['action.cancel', 'action.toNewSide'],
+  'it offers Cancel and a new side chat');
+answers[1].props.onClick();
+answers[0].props.onClick();
+assert.deepEqual(answered.map((entry) => entry[0]), ['new', 'cancel'], 'each answer reaches its own action');
+assert.equal(answered[0][1].turn, 4, 'the new side chat gets the quote that raised the notice');
+assert.match(source, /const recompute = \(\) => \{\s*\/\/[^\n]*\n[^\n]*\n\s*if \(store\.getSnapshot\(\)\.notice !== undefined\) return;/,
+  'a selection event never replaces a notice that waits for its answer');
 
 // ── registration ────────────────────────────────────────────────────────────
 const disposers = [];

@@ -53,7 +53,13 @@ created with and the reply, and the next quote waiting in its composer.
 4. **Send to side chat** goes to the side chat the right sidebar is showing. With
    none open it opens a new page; with several open, the one you are looking at
    gets the quote. When that page is still a draft the quote joins its composer;
-   once the chat exists the quote joins that chat's own composer.
+   once the chat exists the quote joins that chat's own composer. If that chat
+   was forked before the quoted turn — it inherited the main chat up to turn 2,
+   say, and the quote is from turn 4 — it would get the passage without its
+   context, so the menu turns into a notice that says so and asks first:
+   `Send to a new side chat` opens a new side-chat page holding the quote (it
+   forks from the main chat's latest completed turn when sent), and `Cancel`
+   sends nothing. A click anywhere else dismisses it like Cancel.
 5. **A side chat needs no quote.** The page is also offered in the right
    sidebar's guide (the strip's add control / the empty column), and a side chat
    opened that way starts with an empty composer you simply type into *and looks
@@ -280,7 +286,9 @@ fill, the inherited-prefix collapse rule, a fold boundary that an inherited
 quote of the same spot cannot capture, where a selected reply quotes to (the
 main chat, a sent side chat, or nowhere for a pending page's copied rows, other
 sidebar chats and replies still being written), and the one-item `Send to chat`
-menu that hands its quote to that side chat.
+menu that hands its quote to that side chat, and the notice for a quote newer
+than the open side chat's fork point (which turns count as newer, its Cancel
+and new-side-chat answers, and that a selection event never replaces it).
 
 With a local `dsh` install the check also replays every slot registration this
 plugin makes against the host's real `SlotCore`
