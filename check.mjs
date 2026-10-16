@@ -204,20 +204,15 @@ assert.equal(bareTree.props.className, 'dsh-note-panel', 'a guide-opened page sh
 const bareTextarea = find(bareTree, (node) => node.type === 'textarea');
 assert.equal(bareTextarea.props.value, '', 'the guide-opened composer starts empty');
 assert.equal(bareTextarea.props.disabled, false, 'its composer is typable without any quote');
-const bareTitle = find(bareTree, (node) => node.type === 'div' && node.props.className === 'dsh-note-panelTitle');
-assert.equal(bareTitle.children[0], 'sideChat.pendingTitle', 'it is a new side chat');
-// Above the (short) composer sits what the chat will inherit. The check's
-// document has no transcript, so it reports that instead of listing nothing.
-const inheritBox = find(bareTree, (node) => node.type === 'div' && node.props.className === 'dsh-note-inherit');
-assert.ok(inheritBox !== undefined, 'the new-chat panel shows the inherited history');
-const inheritTexts = [];
-(function collect(node) {
-  if (node === null || node === undefined || typeof node !== 'object') return;
-  if (Array.isArray(node)) { for (const child of node) collect(child); return; }
-  if (node.type === 'div' && node.props.className === 'dsh-note-inheritMore') inheritTexts.push(node.children[0]);
-  collect(node.children);
-})(inheritBox);
-assert.deepEqual(inheritTexts, ['sideChat.inheritEmpty'], 'with no main transcript it says so');
+// Above it, the panel already looks like a sent side chat: the main chat's own
+// rows in a scrolling transcript, and the composer card below.
+const transcript = find(bareTree, (node) => node.type === 'div'
+  && String(node.props.className).startsWith('dsh-note-transcript'));
+assert.ok(transcript !== undefined, 'the new-chat panel shows the inherited history');
+const emptyNote = find(transcript, (node) => node.type === 'div' && node.props.className === 'dsh-note-empty');
+assert.equal(emptyNote.children[0], 'sideChat.inheritEmpty', 'with no main transcript it says so');
+assert.ok(find(bareTree, (node) => node.type === 'div' && node.props.className === 'dsh-note-composer') !== undefined,
+  'the composer sits in a card of its own');
 
 // ── the chip names the page's side chat ────────────────────────────────────
 const chipTree = chip.component({
@@ -247,12 +242,12 @@ assert.match(
 );
 assert.ok(!source.includes('filter: brightness'), 'the primary hover no longer washes toward white');
 
-// The new-chat composer keeps a third of the room; the inherited history, shown
-// in the main chat's own markup, takes the rest and scrolls.
-assert.match(source, /\.dsh-note-input\s*\{[^}]*flex:\s*1 1 0/, 'the new-chat composer takes one third');
-assert.match(source, /\.dsh-note-inherit\s*\{[^}]*flex:\s*2 1 0/, 'the inherited history takes two thirds');
-assert.match(source, /\.dsh-note-inheritList\s*\{[^}]*overflow:\s*auto/, 'the inherited list scrolls');
-assert.match(source, /\.dsh-note-inheritBody\s*\{[^}]*min-width:\s*0/, 'the captured rows get a body of their own');
+// The new-chat panel splits like a sent one: two thirds transcript, one third
+// composer, with the rows in the main chat's own markup.
+assert.match(source, /\.dsh-note-transcript\s*\{[^}]*flex:\s*2 1 0/, 'the transcript takes two thirds');
+assert.match(source, /\.dsh-note-transcript\s*\{[^}]*overflow:\s*auto/, 'the transcript scrolls');
+assert.match(source, /\.dsh-note-composer\s*\{[^}]*flex:\s*1 1 0/, 'the composer takes one third');
+assert.match(source, /\.dsh-note-toolNote\s*\{/, 'the toolbar can carry the inherited count');
 
 // The inherited prefix is folded by CSS alone, so it stays folded through
 // re-renders and copied/moved nodes.

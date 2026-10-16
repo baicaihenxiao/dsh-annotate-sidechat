@@ -36,13 +36,14 @@ send the located quote to the main chat or to a side chat**.
    once the chat exists the quote joins that chat's own composer.
 5. **A side chat needs no quote.** The page is also offered in the right
    sidebar's guide (the strip's add control / the empty column), and a side chat
-   opened that way starts with an empty composer you simply type into. Before the
-   chat exists, that page shows what it is about to inherit: the main chat's
-   completed turns, captured **once, when the side chat is created**, with an
-   `N 轮 · M 条` count. The messages are the main chat's own rows, so they read
-   the way the main chat renders them (markdown, code, layout) rather than as a
-   flattened summary. The composer under them keeps one third of the room and the
-   history takes the other two.
+   opened that way starts with an empty composer you simply type into *and looks
+   like a side chat that has already been sent to*: the same toolbar (with the
+   inherited-turn count where the sent panel shows its fold toggle), a scrolling
+   transcript of the main chat's own rows, and a composer card at the bottom
+   keeping one third of the room. What the transcript shows is what the new chat
+   is about to inherit — the main chat's completed turns, captured **once, when
+   the side chat is created**, and rendered in the main chat's own markup
+   (markdown, code, layout) rather than as a flattened summary.
 6. **The chat is created on send, not on click.** Until a composer is sent, the
    page is a plain editable draft and **no chat exists** in the session list.
    Sending forks the main chat (`sessions.fork` with no explicit boundary, so the
@@ -140,20 +141,20 @@ rule (`sidechat-<n>-<title>`, with the directory fallback), side-chat numbering,
 zh/en key parity, the page-type registration (`multiple: true`, its guide entry,
 its tab chip), the pending panel for both a menu-opened and a guide-opened page
 (Reset left of New, each with its own glyph, class and tooltip — caution tone
-for Reset, brand tone for New — and an inherited-history box that takes two
-thirds of the room above a one-third composer), the primary hover fill, and the
+for Reset, brand tone for New — and a transcript that takes two thirds of the
+room above a one-third composer card), the primary hover fill, and the
 inherited-prefix collapse rule.
 
 The DOM layer was additionally driven through headless Chrome with a scratch
 harness (not committed — it needs a local Chrome plus `puppeteer-core`): the
 two-item menu, a sidebar selection yielding none, a sidebar mousedown not being
 cancelled, `Send to main chat` appending after one blank line with a trailing
-newline and then focusing the composer, the new-chat panel keeping the composer
-at about a third of the room with the inherited history scrolling above it in the
-main chat's own markup and counting only the completed turns (`N 轮 · M 条`, the
-turn still being written excluded), that snapshot then holding still while the
-main chat grows (with a later side chat capturing the newer state instead),
-`Send to side chat` opening a page when
+newline and then focusing the composer, the new-chat panel carrying the same
+toolbar as a sent one with a third-height composer card under a scrolling
+transcript that is the main chat's own markup and counts only the completed turns
+(`继承自主对话 N 轮`, the turn still being written excluded), that snapshot then
+holding still while the main chat grows (with a later side chat capturing the
+newer state instead), `Send to side chat` opening a page when
 none is up, sending that page forking once and titling the child
 `sidechat-1-Main chat title` with no explicit boundary (the host's last completed
 turn) — including after the main chat moved on, the Reset and New buttons each

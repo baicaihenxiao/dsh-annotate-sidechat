@@ -47,16 +47,12 @@ window.__ModuleLoader__.load({
       'mainChat.failed': '无法写入主对话的输入框。',
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': '隐藏继承内容',
-      'sideChat.inheritCount': '{turns} 轮 · {messages} 条',
       'sideChat.inheritEmpty': '主对话还没有已完成的内容',
       'sideChat.inheritMore': '更早的 {messages} 条未显示',
-      'sideChat.inheritTitle': '继承自主对话',
       'sideChat.inherited': '继承自主对话 {turns} 轮',
       'sideChat.new': '新建',
       'sideChat.newHint': '再开一个侧边对话',
-      'sideChat.pendingHint': '可直接输入，不必引用；发送后新建以 sidechat- 开头的对话',
-      'sideChat.pendingPlaceholder': '输入内容…',
-      'sideChat.pendingTitle': '新建侧边对话',
+      'sideChat.pendingPlaceholder': '输入内容，发送后新建 sidechat- 对话…',
       'sideChat.reset': '重置',
       'sideChat.resetFailed': '重置失败：{message}',
       'sideChat.resetHint': '归档当前对话，在本页重新开始',
@@ -74,16 +70,12 @@ window.__ModuleLoader__.load({
       'mainChat.failed': 'The main chat composer could not be reached.',
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': 'Hide inherited',
-      'sideChat.inheritCount': '{turns} turns · {messages} messages',
       'sideChat.inheritEmpty': 'The main chat has nothing completed yet',
       'sideChat.inheritMore': '{messages} earlier messages not shown',
-      'sideChat.inheritTitle': 'Inherited from the main chat',
       'sideChat.inherited': '{turns} turns inherited from the main chat',
       'sideChat.new': 'New',
       'sideChat.newHint': 'Open another side chat',
-      'sideChat.pendingHint': 'Type directly, quoting is optional; sending creates a chat titled sidechat-…',
-      'sideChat.pendingPlaceholder': 'Type your message…',
-      'sideChat.pendingTitle': 'New side chat',
+      'sideChat.pendingPlaceholder': 'Type a message; sending creates a sidechat- chat…',
       'sideChat.reset': 'Reset',
       'sideChat.resetFailed': 'Reset failed: {message}',
       'sideChat.resetHint': 'Archive this chat and start over in this page',
@@ -505,11 +497,12 @@ window.__ModuleLoader__.load({
      * history contributes what is rendered.
      */
     function captureInherited(sessions, parentId) {
-      const empty = { columnClass: '', html: '', messages: 0, turns: 0, hidden: 0 };
+      const empty = { columnClass: '', scrollClass: '', html: '', messages: 0, turns: 0, hidden: 0 };
       const root = mainTranscript();
       const first = root === null ? null : root.querySelector('[data-chat-flow-key]');
       const column = first === null ? null : first.parentElement;
       if (root === null || column === null) return empty;
+      const scroll = column.parentElement;
       let boundary = null;
       for (const item of root.querySelectorAll('[data-chat-turn]')) {
         const turn = itemTurn(item);
@@ -541,6 +534,7 @@ window.__ModuleLoader__.load({
       }
       return {
         columnClass: typeof column.className === 'string' ? column.className : '',
+        scrollClass: scroll !== null && typeof scroll.className === 'string' ? scroll.className : '',
         html: kept.join(''),
         messages: items.length,
         turns: turns.size,
@@ -815,7 +809,6 @@ window.__ModuleLoader__.load({
   font-family: inherit; font-size: 13px; line-height: 1.5;
   color: var(--dsw-alias-label-primary);
 }
-.dsh-note-panelTitle { font-weight: 600; }
 .dsh-note-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; }
 .dsh-note-tool {
   padding: 3px 8px; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; border-radius: 6px;
@@ -851,31 +844,39 @@ window.__ModuleLoader__.load({
 .dsh-note-sideBody { flex: 1 1 auto; min-height: 0; display: flex; }
 /* The fork's inherited prefix, folded away until the toolbar is asked to show it. */
 .dsh-note-sideBody[data-dsh-sidechat-collapsed] [data-dsh-sidechat-inherited] { display: none; }
-/* The room under the toolbar is split: the composer keeps one third of it, the
-   inherited history takes the rest. */
+/* The room under the toolbar splits the way a sent side chat does: the
+   transcript takes two thirds (scrolling in the main chat's own container), the
+   composer one. */
+.dsh-note-transcript {
+  flex: 2 1 0; min-height: 0; overflow: auto; display: flex; flex-direction: column;
+  padding: 4px 0; box-sizing: border-box;
+}
+/* The captured rows carry the main chat's own classes; only their controls are
+   dropped, since a clone has no handlers. */
+.dsh-note-transcript > div { min-width: 0; }
+.dsh-note-transcript button, .dsh-note-transcript [role="button"] { display: none; }
+.dsh-note-empty { padding: 8px 0; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
+.dsh-note-composer {
+  flex: 1 1 0; min-height: 64px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 4px; padding: 8px 10px;
+  background: var(--dsw-specific-input-major, var(--dsw-alias-bg-layer-1));
+  border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-xl, 12px);
+}
+.dsh-note-composer:focus-within { border-color: var(--dsw-alias-border-l3); }
 .dsh-note-input {
-  display: block; box-sizing: border-box; width: 100%; flex: 1 1 0; min-height: 44px; height: auto;
-  resize: none;
-  padding: 8px; font: inherit; color: inherit;
-  background: var(--dsw-alias-bg-base);
-  border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px;
+  flex: 1 1 auto; min-height: 40px; width: 100%; box-sizing: border-box;
+  display: block; resize: none; padding: 2px 0;
+  font: inherit; color: inherit; background: transparent; border: none;
 }
-.dsh-note-inherit {
-  flex: 2 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px;
-  padding: 8px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px;
-  background: var(--dsw-alias-bg-layer-1);
+.dsh-note-input:focus { outline: none; }
+.dsh-note-composerRow { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.dsh-note-sendBtn {
+  padding: 3px 10px; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; border-radius: 6px;
+  color: #fff; background: var(--dsw-alias-brand-primary); border: 1px solid var(--dsw-alias-brand-primary);
 }
-.dsh-note-inheritHead { flex: none; display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--dsw-alias-label-secondary); }
-.dsh-note-inheritCount { margin-left: auto; color: var(--dsw-alias-label-tertiary); }
-.dsh-note-inheritList { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
-/* The captured rows keep the main chat's own classes; only their controls and
-   they get the panel's narrower measure. */
-.dsh-note-inheritBody { min-width: 0; }
-.dsh-note-inheritBody button, .dsh-note-inheritBody [role="button"] { display: none; }
-.dsh-note-inheritMore { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
-.dsh-note-input:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
-.dsh-note-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.dsh-note-hint { font-size: 11px; color: var(--dsw-alias-label-secondary); }
+.dsh-note-sendBtn:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 88%, #000); }
+.dsh-note-sendBtn[disabled] { opacity: 0.5; cursor: default; }
+.dsh-note-toolNote { margin-left: auto; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
 .dsh-note-error { font-size: 12px; color: var(--dsw-alias-state-error-primary); }
 `;
 
@@ -1107,6 +1108,7 @@ window.__ModuleLoader__.load({
         () => props.chats.get(id),
       );
       const childId = entry.childId;
+      const hasChild = typeof childId === 'string' && childId !== '';
       const boundaryTurn = entry.boundaryTurn;
       const first = entry.first;
       const cwd = typeof bag.cwd === 'string' ? bag.cwd : undefined;
@@ -1192,7 +1194,7 @@ window.__ModuleLoader__.load({
           title: t('sideChat.newHint'),
           onClick: () => props.newSideChat(id),
         }, h('span', { className: 'dsh-note-toolGlyph' }, '＋'), t('sideChat.new')),
-        typeof childId === 'string' && childId !== '' && inherited > 0
+        hasChild && inherited > 0
           ? h('button', {
               className: 'dsh-note-tool dsh-note-tool-toggle', type: 'button',
               'data-active': entry.collapsed ? undefined : true,
@@ -1200,10 +1202,12 @@ window.__ModuleLoader__.load({
               onClick: () => props.chats.patch(id, { collapsed: !entry.collapsed }),
             }, h('span', { className: 'dsh-note-toolGlyph' }, entry.collapsed ? '▸' : '▾'),
               t('sideChat.inherited', { turns: inherited }))
-          : null,
+          : (!hasChild && entry.inherited !== null && entry.inherited.turns > 0
+              ? h('span', { className: 'dsh-note-toolNote' }, t('sideChat.inherited', { turns: entry.inherited.turns }))
+              : null),
       );
 
-      if (typeof childId === 'string' && childId !== '') {
+      if (hasChild) {
         if (failed) return h('div', { className: 'dsh-note-panel', [OURS]: '' }, tools, h('div', null, t('sideChat.empty')));
         if (reference === null) return h('div', { className: 'dsh-note-panel', [OURS]: '' }, tools, h('div', { style: { opacity: 0.6 } }, t('sideChat.working')));
         // `reference` IS the scope target (`SlotScopeTargetMap.session`); the
@@ -1222,51 +1226,48 @@ window.__ModuleLoader__.load({
       }
 
       const send = () => props.sendSideChat(id);
-      // The main chat's own rows, captured when this page was created, so the
-      // history reads exactly the way the main chat renders it.
+      // Before the chat exists the panel already looks like one that has been
+      // sent to: the same toolbar, the main chat's own rows inside the main
+      // chat's own scroll container, and a composer card below them.
       const origin = entry.inherited;
-      const inheritedBox = h('div', { className: 'dsh-note-inherit' },
-        h('div', { className: 'dsh-note-inheritHead' },
-          h('span', null, t('sideChat.inheritTitle')),
-          origin === null || origin.messages === 0
-            ? null
-            : h('span', { className: 'dsh-note-inheritCount' },
-                t('sideChat.inheritCount', { turns: origin.turns, messages: origin.messages })),
-        ),
+      const transcript = h('div', {
+        className: 'dsh-note-transcript' + (origin !== null && origin.scrollClass ? ' ' + origin.scrollClass : ''),
+      },
         origin === null || origin.html === ''
-          ? h('div', { className: 'dsh-note-inheritMore' }, t('sideChat.inheritEmpty'))
-          : h('div', { className: 'dsh-note-inheritList' },
+          ? h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritEmpty'))
+          : [
               origin.hidden === 0
                 ? null
-                : h('div', { className: 'dsh-note-inheritMore' }, t('sideChat.inheritMore', { messages: origin.hidden })),
+                : h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritMore', { messages: origin.hidden })),
               h('div', {
-                className: 'dsh-note-inheritBody ' + (origin.columnClass || ''),
+                key: 'rows',
+                className: origin.columnClass || '',
                 dangerouslySetInnerHTML: { __html: origin.html },
               }),
-            ),
+            ],
       );
       return h('div', { className: 'dsh-note-panel', [OURS]: '' },
         tools,
-        h('div', { className: 'dsh-note-panelTitle' }, t('sideChat.pendingTitle')),
-        h('div', { className: 'dsh-note-hint' }, t('sideChat.pendingHint')),
-        inheritedBox,
-        h('textarea', {
-          className: 'dsh-note-input',
-          ref: composerRef,
-          value: entry.draft,
-          disabled: entry.busy,
-          placeholder: t('sideChat.pendingPlaceholder'),
-          onChange: (event) => props.chats.patch(id, { draft: event.target.value, error: '' }),
-          onKeyDown: (event) => {
-            if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); }
-          },
-        }),
-        h('div', { className: 'dsh-note-row' },
-          h('button', {
-            className: 'dsh-note-btn dsh-note-btn-primary', type: 'button',
-            disabled: entry.busy || entry.draft.trim() === '',
-            onClick: send,
-          }, t('sideChat.send')),
+        transcript,
+        h('div', { className: 'dsh-note-composer' },
+          h('textarea', {
+            className: 'dsh-note-input',
+            ref: composerRef,
+            value: entry.draft,
+            disabled: entry.busy,
+            placeholder: t('sideChat.pendingPlaceholder'),
+            onChange: (event) => props.chats.patch(id, { draft: event.target.value, error: '' }),
+            onKeyDown: (event) => {
+              if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); }
+            },
+          }),
+          h('div', { className: 'dsh-note-composerRow' },
+            h('button', {
+              className: 'dsh-note-sendBtn', type: 'button',
+              disabled: entry.busy || entry.draft.trim() === '',
+              onClick: send,
+            }, t('sideChat.send')),
+          ),
         ),
         entry.error === '' ? null : h('div', { className: 'dsh-note-error' }, entry.error),
       );
