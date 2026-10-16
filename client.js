@@ -57,8 +57,6 @@ window.__ModuleLoader__.load({
       'sideChat.pendingHint': '可直接输入，不必引用；发送后新建以 sidechat- 开头的对话',
       'sideChat.pendingPlaceholder': '输入内容…',
       'sideChat.pendingTitle': '新建侧边对话',
-      'sideChat.roleAssistant': 'AI',
-      'sideChat.roleUser': '你',
       'sideChat.reset': '重置',
       'sideChat.resetFailed': '重置失败：{message}',
       'sideChat.resetHint': '归档当前对话，在本页重新开始',
@@ -86,8 +84,6 @@ window.__ModuleLoader__.load({
       'sideChat.pendingHint': 'Type directly, quoting is optional; sending creates a chat titled sidechat-…',
       'sideChat.pendingPlaceholder': 'Type your message…',
       'sideChat.pendingTitle': 'New side chat',
-      'sideChat.roleAssistant': 'AI',
-      'sideChat.roleUser': 'You',
       'sideChat.reset': 'Reset',
       'sideChat.resetFailed': 'Reset failed: {message}',
       'sideChat.resetHint': 'Archive this chat and start over in this page',
@@ -119,8 +115,9 @@ window.__ModuleLoader__.load({
     const TAB_KIND = 'annotate-sidechat-note';
     /** Side-chat titles all start here; the number after it is the chat's index. */
     const TITLE_PREFIX = 'sidechat-';
-    /** How many inherited messages the new-chat panel previews. */
-    const PREVIEW_LIMIT = 6;
+    /** How much inherited message markup one new-chat page carries. */
+    const INHERIT_MARKUP_MAX = 4096;
+    const INHERIT_MARKUP_TOTAL = 24576;
     /** Block containers the location line can name. */
     const BLOCKS = 'p, li, pre, blockquote, h1, h2, h3, h4, h5, h6, td, th';
     const BLOCK_LABELS = {
@@ -375,6 +372,7 @@ window.__ModuleLoader__.load({
         childId: null,
         boundaryTurn: null,
         first: '',
+        inherited: null,
         draft: '',
         busy: false,
         error: '',
@@ -416,7 +414,15 @@ window.__ModuleLoader__.load({
         },
         create(parentId) {
           const id = 'note-' + Math.random().toString(36).slice(2, 10);
-          const entry = { ...EMPTY, id: id, parentId: parentId, index: nextSideChatIndex(ctx, store, parentId) };
+          const entry = {
+            ...EMPTY,
+            id: id,
+            parentId: parentId,
+            index: nextSideChatIndex(ctx, store, parentId),
+            // A snapshot, not a mirror: the page shows the main chat as it was
+            // when this side chat was created.
+            inherited: captureInherited(ctx.sessions, parentId),
+          };
           entries.set(id, entry);
           notify();
           return entry;
@@ -491,59 +497,55 @@ window.__ModuleLoader__.load({
       } catch (error) { return false; }
     }
 
-    /** One message's text, flattened for the preview list, chrome removed. */
-    function readableText(item) {
-      let text = '';
-      try {
-        const clone = item.cloneNode(true);
-        for (const chrome of clone.querySelectorAll('button, [role="button"], [data-code-block-banner]')) chrome.remove();
-        text = (clone.textContent || '').replace(/\s+/g, ' ').trim();
-      } catch (error) { text = ''; }
-      return text.length > 600 ? text.slice(0, 600) + '…' : text;
-    }
-
     /**
-     * The messages the main chat would hand a fork right now, newest last: the
-     * readable rows up to the turn a fork cuts at. Best effort — it reads the
-     * transcript on screen, so a windowed history shows what is rendered.
+     * The main chat's own message markup, as of right now, up to the turn a fork
+     * cuts at. Cloning the rows (and the column's class) keeps the host's
+     * rendering, so the new-chat panel shows the history the way the main chat
+     * shows it. Best effort: it reads the transcript on screen, so a windowed
+     * history contributes what is rendered.
      */
-    function inheritedPreview(sessions, parentId, limit) {
-      const empty = { turns: 0, messages: 0, shown: [], hidden: 0 };
+    function captureInherited(sessions, parentId) {
+      const empty = { columnClass: '', html: '', messages: 0, turns: 0, hidden: 0 };
       const root = mainTranscript();
-      if (root === null) return empty;
+      const first = root === null ? null : root.querySelector('[data-chat-flow-key]');
+      const column = first === null ? null : first.parentElement;
+      if (root === null || column === null) return empty;
       let boundary = null;
       for (const item of root.querySelectorAll('[data-chat-turn]')) {
         const turn = itemTurn(item);
         if (turn !== undefined && (boundary === null || turn > boundary)) boundary = turn;
       }
       if (boundary !== null && parentRunning(sessions, parentId)) boundary = Math.max(0, boundary - 1);
-      const all = [];
+      const items = [];
       const turns = new Set();
       for (const item of root.querySelectorAll('[data-chat-flow-key]')) {
+        if (item.hasAttribute('hidden')) continue;
         const kind = item.getAttribute('data-chat-flow-kind');
         if (kind !== 'user' && kind !== 'assistant-step') continue;
         // The thinking blocks are part of the reply, not of the conversation.
         if (item.getAttribute('data-chat-group-part') === 'reasoning') continue;
         const turn = itemTurn(item);
         if (boundary !== null && turn !== undefined && turn > boundary) continue;
-        const text = readableText(item);
-        if (text === '') continue;
         if (turn !== undefined) turns.add(turn);
-        all.push({ role: kind === 'user' ? 'user' : 'assistant', text: text });
+        items.push(item);
       }
-      const shown = typeof limit === 'number' && all.length > limit ? all.slice(all.length - limit) : all;
-      return { turns: turns.size, messages: all.length, shown: shown, hidden: all.length - shown.length };
-    }
-
-    /** Whether two previews would render the same, so a read can keep the old one. */
-    function samePreview(left, right) {
-      if (left === null || right === null) return left === right;
-      if (left.turns !== right.turns || left.messages !== right.messages || left.hidden !== right.hidden) return false;
-      if (left.shown.length !== right.shown.length) return false;
-      for (let index = 0; index < left.shown.length; index += 1) {
-        if (left.shown[index].role !== right.shown[index].role || left.shown[index].text !== right.shown[index].text) return false;
+      // Carry the newest messages that fit; the rest are reported as not shown.
+      const kept = [];
+      let used = 0;
+      for (let index = items.length - 1; index >= 0; index -= 1) {
+        const markup = items[index].outerHTML;
+        if (markup.length > INHERIT_MARKUP_MAX) continue;
+        if (used + markup.length > INHERIT_MARKUP_TOTAL) break;
+        used += markup.length;
+        kept.unshift(markup);
       }
-      return true;
+      return {
+        columnClass: typeof column.className === 'string' ? column.className : '',
+        html: kept.join(''),
+        messages: items.length,
+        turns: turns.size,
+        hidden: items.length - kept.length,
+      };
     }
 
     /** One durable-window read of a retained session, for the fork boundary. */
@@ -596,6 +598,7 @@ window.__ModuleLoader__.load({
         ...entry.childId === null ? {} : { childId: entry.childId },
         ...entry.boundaryTurn === null ? {} : { boundaryTurn: entry.boundaryTurn },
         ...entry.first === '' ? {} : { first: entry.first },
+        ...entry.inherited === null ? {} : { inherited: entry.inherited },
         ...entry.draft === '' ? {} : { draft: entry.draft },
       };
     }
@@ -848,29 +851,27 @@ window.__ModuleLoader__.load({
 .dsh-note-sideBody { flex: 1 1 auto; min-height: 0; display: flex; }
 /* The fork's inherited prefix, folded away until the toolbar is asked to show it. */
 .dsh-note-sideBody[data-dsh-sidechat-collapsed] [data-dsh-sidechat-inherited] { display: none; }
-/* The new-chat composer stays a couple of lines tall: the room above it is the
-   main chat's inherited history, which is what the page is about. */
+/* The room under the toolbar is split: the composer keeps one third of it, the
+   inherited history takes the rest. */
 .dsh-note-input {
-  display: block; box-sizing: border-box; width: 100%; height: 52px; min-height: 52px; max-height: 40vh;
-  flex: 0 0 auto; resize: vertical;
+  display: block; box-sizing: border-box; width: 100%; flex: 1 1 0; min-height: 44px; height: auto;
+  resize: none;
   padding: 8px; font: inherit; color: inherit;
   background: var(--dsw-alias-bg-base);
   border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px;
 }
 .dsh-note-inherit {
-  flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 6px;
+  flex: 2 1 0; min-height: 0; display: flex; flex-direction: column; gap: 6px;
   padding: 8px; border: 1px solid var(--dsw-alias-border-l1); border-radius: 8px;
   background: var(--dsw-alias-bg-layer-1);
 }
 .dsh-note-inheritHead { flex: none; display: flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--dsw-alias-label-secondary); }
 .dsh-note-inheritCount { margin-left: auto; color: var(--dsw-alias-label-tertiary); }
 .dsh-note-inheritList { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
-.dsh-note-inheritItem { flex: none; }
-.dsh-note-inheritRole { font-size: 10px; font-weight: 600; color: var(--dsw-alias-label-tertiary); }
-.dsh-note-inheritText {
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
-  font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-secondary); overflow-wrap: anywhere;
-}
+/* The captured rows keep the main chat's own classes; only their controls and
+   they get the panel's narrower measure. */
+.dsh-note-inheritBody { min-width: 0; }
+.dsh-note-inheritBody button, .dsh-note-inheritBody [role="button"] { display: none; }
 .dsh-note-inheritMore { font-size: 11px; color: var(--dsw-alias-label-tertiary); }
 .dsh-note-input:focus { outline: none; border-color: var(--dsw-alias-brand-primary); }
 .dsh-note-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
@@ -1097,6 +1098,7 @@ window.__ModuleLoader__.load({
         childId: typeof bag.childId === 'string' ? bag.childId : null,
         boundaryTurn: Number.isSafeInteger(bag.boundaryTurn) ? bag.boundaryTurn : null,
         first: typeof bag.first === 'string' ? bag.first : '',
+        inherited: bag.inherited !== null && typeof bag.inherited === 'object' ? bag.inherited : null,
         draft: typeof bag.draft === 'string' ? bag.draft : '',
       });
       props.chats.bindTab(tabId, id);
@@ -1111,7 +1113,6 @@ window.__ModuleLoader__.load({
       const [reference, setReference] = React.useState(null);
       const [failed, setFailed] = React.useState(false);
       const [inherited, setInherited] = React.useState(0);
-      const [preview, setPreview] = React.useState(null);
       const composerRef = React.useRef(null);
       const bodyRef = React.useRef(null);
 
@@ -1138,32 +1139,6 @@ window.__ModuleLoader__.load({
         const end = node.value.length;
         try { node.setSelectionRange(end, end); } catch (error) { /* not selectable */ }
       }, [entry.focusToken, entry.busy]);
-
-      // Before the chat exists, show what it is going to inherit: the main
-      // chat's completed turns, re-read whenever that transcript changes.
-      React.useEffect(() => {
-        if (typeof childId === 'string' && childId !== '') { setPreview(null); return undefined; }
-        let frame = null;
-        const read = () => {
-          frame = null;
-          // A streamed answer mutates the transcript constantly; only a preview
-          // that would actually render differently is worth a re-render.
-          const next = inheritedPreview(props.sessions, parentId, PREVIEW_LIMIT);
-          setPreview((previous) => (samePreview(previous, next) ? previous : next));
-        };
-        read();
-        const root = mainTranscript();
-        if (root === null) return undefined;
-        const observer = new MutationObserver(() => {
-          if (frame !== null) return;
-          frame = requestAnimationFrame(read);
-        });
-        observer.observe(root, { childList: true, subtree: true, characterData: true });
-        return () => {
-          observer.disconnect();
-          if (frame !== null) cancelAnimationFrame(frame);
-        };
-      }, [childId, parentId]);
 
       // Mark the fork's inherited flow items, and keep marking them as older
       // history pages arrive. `inherited` is what the toolbar toggles.
@@ -1247,25 +1222,27 @@ window.__ModuleLoader__.load({
       }
 
       const send = () => props.sendSideChat(id);
+      // The main chat's own rows, captured when this page was created, so the
+      // history reads exactly the way the main chat renders it.
+      const origin = entry.inherited;
       const inheritedBox = h('div', { className: 'dsh-note-inherit' },
         h('div', { className: 'dsh-note-inheritHead' },
           h('span', null, t('sideChat.inheritTitle')),
-          preview === null || preview.messages === 0
+          origin === null || origin.messages === 0
             ? null
             : h('span', { className: 'dsh-note-inheritCount' },
-                t('sideChat.inheritCount', { turns: preview.turns, messages: preview.messages })),
+                t('sideChat.inheritCount', { turns: origin.turns, messages: origin.messages })),
         ),
-        preview === null || preview.shown.length === 0
+        origin === null || origin.html === ''
           ? h('div', { className: 'dsh-note-inheritMore' }, t('sideChat.inheritEmpty'))
           : h('div', { className: 'dsh-note-inheritList' },
-              preview.hidden === 0
+              origin.hidden === 0
                 ? null
-                : h('div', { className: 'dsh-note-inheritMore' }, t('sideChat.inheritMore', { messages: preview.hidden })),
-              preview.shown.map((message, index) => h('div', { className: 'dsh-note-inheritItem', key: index },
-                h('div', { className: 'dsh-note-inheritRole' },
-                  t(message.role === 'user' ? 'sideChat.roleUser' : 'sideChat.roleAssistant')),
-                h('div', { className: 'dsh-note-inheritText' }, message.text),
-              )),
+                : h('div', { className: 'dsh-note-inheritMore' }, t('sideChat.inheritMore', { messages: origin.hidden })),
+              h('div', {
+                className: 'dsh-note-inheritBody ' + (origin.columnClass || ''),
+                dangerouslySetInnerHTML: { __html: origin.html },
+              }),
             ),
       );
       return h('div', { className: 'dsh-note-panel', [OURS]: '' },

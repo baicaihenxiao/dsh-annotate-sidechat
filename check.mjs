@@ -247,10 +247,12 @@ assert.match(
 );
 assert.ok(!source.includes('filter: brightness'), 'the primary hover no longer washes toward white');
 
-// The new-chat composer stays short, and the room it frees goes to the
-// inherited history above it.
-assert.match(source, /\.dsh-note-input\s*\{[^}]*height:\s*52px/, 'the new-chat composer is kept short');
+// The new-chat composer keeps a third of the room; the inherited history, shown
+// in the main chat's own markup, takes the rest and scrolls.
+assert.match(source, /\.dsh-note-input\s*\{[^}]*flex:\s*1 1 0/, 'the new-chat composer takes one third');
+assert.match(source, /\.dsh-note-inherit\s*\{[^}]*flex:\s*2 1 0/, 'the inherited history takes two thirds');
 assert.match(source, /\.dsh-note-inheritList\s*\{[^}]*overflow:\s*auto/, 'the inherited list scrolls');
+assert.match(source, /\.dsh-note-inheritBody\s*\{[^}]*min-width:\s*0/, 'the captured rows get a body of their own');
 
 // The inherited prefix is folded by CSS alone, so it stays folded through
 // re-renders and copied/moved nodes.
