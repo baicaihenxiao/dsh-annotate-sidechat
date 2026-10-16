@@ -1,0 +1,5 @@
+# Bundle patch: the Host half registers nothing (the whole feature lives in the
+# Client half), but the row must exist so the Client module loads with the plugin.
+- insert:
+    - id: annotate-sidechat
+      name: 'dsh-annotate-sidechat'

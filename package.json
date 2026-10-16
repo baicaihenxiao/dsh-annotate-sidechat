@@ -1,0 +1,38 @@
+{
+  "name": "dsh-annotate-sidechat",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Select text in an assistant reply, write an annotation in a popover, and continue in a forked side chat in the right sidebar.",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-client-locale": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "0.2.0-rc.2"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "meta": {
+    "title": "Annotate → side chat",
+    "description": "Select assistant reply text, annotate it in a popover, and continue the thought in a forked side chat."
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  }
+}
