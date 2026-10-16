@@ -55,7 +55,8 @@ send the located quote to the main chat or to a side chat**.
    once when the side chat is created (the reader is session-addressed, so a chat
    switch cannot hand a new side chat the previous project's history) and
    rendered in the main chat's own markup (markdown, code, layout) rather than as
-   a flattened summary.
+   a flattened summary. The area opens at the end of that history, the way a sent
+   chat's transcript does, so the newest turns sit right above the composer.
 6. **The chat is created on send, not on click.** Until a composer is sent, the
    page is a plain editable draft and **no chat exists** in the session list.
    Sending forks the main chat (`sessions.fork` with no explicit boundary, so the

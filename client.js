@@ -1195,12 +1195,15 @@ window.__ModuleLoader__.load({
       }, [hasChild, paneSessionId, entry.parentId, id]);
       const boundaryTurn = entry.boundaryTurn;
       const first = entry.first;
+      const origin = entry.inherited;
+      const originHtml = origin === null ? '' : origin.html;
       const cwd = typeof bag.cwd === 'string' ? bag.cwd : undefined;
       const [reference, setReference] = React.useState(null);
       const [failed, setFailed] = React.useState(false);
       const [inherited, setInherited] = React.useState(0);
       const composerRef = React.useRef(null);
       const bodyRef = React.useRef(null);
+      const rowsRef = React.useRef(null);
 
       React.useEffect(() => {
         if (typeof childId !== 'string' || childId === '') { setReference(null); setFailed(false); return undefined; }
@@ -1214,6 +1217,18 @@ window.__ModuleLoader__.load({
         setReference(held);
         return () => { try { held.release(); } catch (error) { /* already released */ } };
       }, [childId]);
+
+      // The inherited history opens at its end, the way a sent chat's transcript
+      // does: the newest turns sit right above the composer instead of the page
+      // showing the oldest ones with the rest hidden below the fold.
+      React.useEffect(() => {
+        const node = rowsRef.current;
+        if (node === null) return undefined;
+        const toEnd = () => { node.scrollTop = node.scrollHeight; };
+        toEnd();
+        const frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(toEnd) : null;
+        return () => { if (frame !== null) cancelAnimationFrame(frame); };
+      }, [hasChild, originHtml]);
 
       // The pending composer takes the keyboard when the panel appears and each
       // time an outside action (the quote menu) puts text in it, with the caret
@@ -1315,9 +1330,8 @@ window.__ModuleLoader__.load({
       // Before the chat exists the panel already looks like one that has been
       // sent to: the same toolbar, the main chat's own rows inside the main
       // chat's own scroll container, and a composer card below them.
-      const origin = entry.inherited;
       const transcript = h('div', { className: 'dsh-note-transcript' },
-        h('div', { className: 'dsh-note-transcriptRows' },
+        h('div', { className: 'dsh-note-transcriptRows', ref: rowsRef },
           origin === null || origin.html === ''
             ? h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritEmpty'))
             : [

@@ -242,6 +242,11 @@ assert.match(
 );
 assert.ok(!source.includes('filter: brightness'), 'the primary hover no longer washes toward white');
 
+// A history taller than its box opens at its end, so the newest inherited turns
+// sit right above the composer instead of the page showing the oldest ones.
+assert.ok(source.includes("className: 'dsh-note-transcriptRows', ref: rowsRef"), 'the rows are ref-wired');
+assert.ok(source.includes('}, [hasChild, originHtml]);'), 'and scroll to their end when the panel opens');
+
 // The transcript snapshot is read from the session on screen, not from whichever
 // conversation happens to be first in the document (a chat switch leaves the
 // previous one mounted for a moment).
