@@ -55,13 +55,7 @@ function find(node, predicate) {
 }
 
 // ── the quote the two menu entries carry ────────────────────────────────────
-const { locationLine, quoteText, draftQuote, appendDraft, sideChatTitle, nextSideChatIndex, ownMessageIndex, nthUserIndex } = plugin.__test;
-
-/** Minimal flow item: only what the folding rules read. */
-function item(kind, text, turn) {
-  const attributes = { 'data-chat-flow-kind': kind, ...(turn === undefined ? {} : { 'data-chat-turn': String(turn) }) };
-  return { textContent: text, getAttribute: (name) => attributes[name] ?? null };
-}
+const { locationLine, quoteText, draftQuote, appendDraft, sideChatTitle, nextSideChatIndex } = plugin.__test;
 
 assert.equal(
   locationLine({ part: 'response', turn: 3, block: 'paragraph 2' }),
@@ -86,36 +80,6 @@ assert.equal(appendDraft('typed', 'q'), 'typed\n\nq', 'existing text keeps one b
 // fresh line so the caret waits for the user's own words.
 assert.equal(draftQuote({ text: 'x', turn: 2 }), quoteText({ text: 'x', turn: 2 }) + '\n');
 assert.ok(draftQuote({ text: 'x' }).endsWith('> x\n'), 'the composer draft ends with one newline');
-
-// ── folding: where a side chat's own first message starts ──────────────────
-const transcript = [
-  item('user', 'question one', 1),
-  item('assistant-step', 'answer one', 1),
-  item('user', 'question two', 2),
-  item('assistant-step', 'answer two', 2),
-  item('user', 'typed by handfirst line second line', 3),
-  item('assistant-step', 'answer three', 3),
-];
-// The rendered message concatenates its paragraphs with no separator: a
-// whitespace-normalized needle would miss it, a squeezed one matches.
-assert.equal(ownMessageIndex(transcript, 'typed by hand\n\nfirst line\nsecond line'), 4,
-  'a hand-typed multi-line message is found by its whitespace-free prefix');
-assert.equal(
-  ownMessageIndex(
-    [item('user', "Quoted from the assistant's reply (turn 2, paragraph 2): > quoted", 1)],
-    "Quoted from the assistant's reply (turn 2, paragraph 2):\n> quoted",
-  ),
-  0,
-  'a quote is found across the transcript',
-);
-assert.equal(ownMessageIndex(transcript, 'something else entirely'), -1, 'an absent message yields no cut');
-assert.equal(ownMessageIndex(transcript, ''), -1, 'no message on record yields no cut');
-
-// The main chat's user messages are the fallback, with no text and no turns.
-assert.equal(nthUserIndex(transcript, 2), 4, 'the third user message starts this side chat');
-assert.equal(nthUserIndex(transcript, 0), 0, 'an empty main chat starts at the first user message');
-assert.equal(nthUserIndex(transcript, 9), -1, 'too few user messages yields no cut');
-assert.equal(nthUserIndex(transcript, null), -1, 'no count yields no cut');
 
 // ── naming: sidechat-<n>-<main chat title> ─────────────────────────────────
 assert.equal(sideChatTitle(1, 'Fix the login timeout', '/tmp/repo'), 'sidechat-1-Fix the login timeout');

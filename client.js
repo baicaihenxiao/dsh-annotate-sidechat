@@ -303,14 +303,9 @@ window.__ModuleLoader__.load({
       return locationLine(snapshot) + '\n' + quoted;
     }
 
-    /**
-     * Text with every whitespace run removed, for matching a message inside the
-     * transcript: a rendered message joins its paragraphs into one `textContent`
-     * with no separator at all, so comparing normalized text would miss every
-     * hand-typed multi-line message.
-     */
-    function squeezeText(value) {
-      return typeof value === 'string' ? value.replace(/\s+/g, '') : '';
+    /** Whitespace-normalized text, for matching a message inside the transcript. */
+    function normalizeText(value) {
+      return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
     }
 
     /** One flow item's turn number, when the host marked it. */
@@ -320,10 +315,6 @@ window.__ModuleLoader__.load({
       return raw !== null && raw !== '' && Number.isSafeInteger(turn) && turn > 0 ? turn : undefined;
     }
 
-    function isUserItem(item) {
-      return item.getAttribute('data-chat-flow-kind') === 'user';
-    }
-
     /**
      * Where the side chat's own first message sits among the transcript's flow
      * items, or -1 when it is not on the page. Everything before it is what the
@@ -331,70 +322,10 @@ window.__ModuleLoader__.load({
      * numbers, no event windows, and no host cooperation.
      */
     function ownMessageIndex(items, first) {
-      const needle = squeezeText(first).slice(0, 40);
+      const needle = normalizeText(first).slice(0, 60);
       if (needle === '') return -1;
-      return items.findIndex((item) => isUserItem(item) && squeezeText(item.textContent).includes(needle));
-    }
-
-    /**
-     * The flow item holding the (count + 1)-th user message, or -1: the main chat
-     * had `count` user messages when this fork was cut, so the next one is the
-     * side chat's own. Independent of text, turn numbers, and event windows.
-     */
-    function nthUserIndex(items, count) {
-      if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) return -1;
-      let seen = 0;
-      for (let index = 0; index < items.length; index += 1) {
-        if (!isUserItem(items[index])) continue;
-        seen += 1;
-        if (seen > count) return index;
-      }
-      return -1;
-    }
-
-    /** The main chat's transcript root — never the sidebar's copy of it. */
-    function mainTranscript() {
-      try {
-        for (const root of document.querySelectorAll(CONVERSATION)) {
-          if (root.closest(SIDEBAR) === null) return root;
-        }
-      } catch (error) { /* no document, nothing to read */ }
-      return null;
-    }
-
-    /** Whether the main chat is mid-turn, so its last turn is not forkable yet. */
-    function parentRunning(ctx, parentId) {
-      try {
-        const binding = ctx.sessions.binding(parentId);
-        return binding !== undefined && binding.session.getSnapshot().running === true;
-      } catch (error) { return false; }
-    }
-
-    /**
-     * What a fork of the main chat inherits, read off the transcript on screen:
-     * the last completed turn and how many user messages sit at or below it.
-     * Either is null when the page cannot tell.
-     */
-    function mainBoundary(ctx, parentId) {
-      const root = mainTranscript();
-      if (root === null) return { turn: null, users: null };
-      const running = parentRunning(ctx, parentId);
-      let turn = null;
-      for (const item of root.querySelectorAll('[data-chat-turn]')) {
-        const value = itemTurn(item);
-        if (value !== undefined && (turn === null || value > turn)) turn = value;
-      }
-      if (turn !== null && running) turn = Math.max(0, turn - 1);
-      // A running turn belongs to no fork yet, and without a turn to bound the
-      // count either, the count would swallow this side chat's own message.
-      if (turn === null && running) return { turn: null, users: null };
-      let users = 0;
-      for (const item of root.querySelectorAll('[data-chat-flow-kind="user"]')) {
-        const value = itemTurn(item);
-        if (turn !== null && value !== undefined && value > turn) continue;
-        users += 1;
-      }
-      return { turn: turn, users: users };
+      return items.findIndex((item) => item.getAttribute('data-chat-flow-kind') === 'user'
+        && normalizeText(item.textContent).includes(needle));
     }
 
     /** `draft` + one blank line + `text`; `text` alone when the draft is empty. */
@@ -429,7 +360,6 @@ window.__ModuleLoader__.load({
         index: 0,
         childId: null,
         boundaryTurn: null,
-        inheritedUsers: null,
         first: '',
         draft: '',
         busy: false,
@@ -578,7 +508,6 @@ window.__ModuleLoader__.load({
         index: entry.index,
         ...entry.childId === null ? {} : { childId: entry.childId },
         ...entry.boundaryTurn === null ? {} : { boundaryTurn: entry.boundaryTurn },
-        ...entry.inheritedUsers === null ? {} : { users: entry.inheritedUsers },
         ...entry.first === '' ? {} : { first: entry.first },
         ...entry.draft === '' ? {} : { draft: entry.draft },
       };
@@ -707,21 +636,10 @@ window.__ModuleLoader__.load({
       if (text === '') return;
       const index = entry.index > 0 ? entry.index : nextSideChatIndex(ctx, chats, entry.parentId);
       chats.patch(id, { busy: true, error: '', index: index });
-      // Read the main chat's own transcript before forking: it is the only
-      // place that knows what this fork is about to inherit.
-      const boundary = mainBoundary(ctx, entry.parentId);
       try {
         const childId = await createSideChat(ctx, entry.parentId, text, index);
-        const boundaryTurn = boundary.turn === null ? inheritedTurnBoundary(ctx, entry.parentId, childId) : boundary.turn;
-        chats.patch(id, {
-          childId: childId,
-          boundaryTurn: boundaryTurn,
-          inheritedUsers: boundary.users,
-          first: text,
-          draft: '',
-          busy: false,
-          error: '',
-        });
+        const boundaryTurn = inheritedTurnBoundary(ctx, entry.parentId, childId);
+        chats.patch(id, { childId: childId, boundaryTurn: boundaryTurn, first: text, draft: '', busy: false, error: '' });
         // Record the child (and the boundary) in the page's own params.
         refreshSideChatPage(ctx, chats, id);
       } catch (error) {
@@ -750,7 +668,6 @@ window.__ModuleLoader__.load({
         index: nextSideChatIndex(ctx, chats, entry.parentId),
         childId: null,
         boundaryTurn: null,
-        inheritedUsers: null,
         first: '',
         draft: '',
         busy: false,
@@ -1060,7 +977,6 @@ window.__ModuleLoader__.load({
         index: Number.isSafeInteger(bag.index) ? bag.index : 1,
         childId: typeof bag.childId === 'string' ? bag.childId : null,
         boundaryTurn: Number.isSafeInteger(bag.boundaryTurn) ? bag.boundaryTurn : null,
-        inheritedUsers: Number.isSafeInteger(bag.users) ? bag.users : null,
         first: typeof bag.first === 'string' ? bag.first : '',
         draft: typeof bag.draft === 'string' ? bag.draft : '',
       });
@@ -1071,7 +987,6 @@ window.__ModuleLoader__.load({
       );
       const childId = entry.childId;
       const boundaryTurn = entry.boundaryTurn;
-      const inheritedUsers = entry.inheritedUsers;
       const first = entry.first;
       const cwd = typeof bag.cwd === 'string' ? bag.cwd : undefined;
       const [reference, setReference] = React.useState(null);
@@ -1113,28 +1028,14 @@ window.__ModuleLoader__.load({
         const mark = () => {
           frame = null;
           const items = Array.from(node.querySelectorAll('[data-chat-flow-key]'));
-          // Three ways to find the boundary, most precise first: this side
-          // chat's own first message, then the main chat's user-message count,
-          // then the turns the fork's event windows reported.
-          let cut = ownMessageIndex(items, first);
-          if (cut < 0) cut = nthUserIndex(items, inheritedUsers);
-          let highest = null;
-          if (cut < 0) {
-            for (const item of items) {
-              const value = itemTurn(item);
-              if (value !== undefined && (highest === null || value > highest)) highest = value;
-            }
-          }
-          // Only trust turns when this transcript really continues past the
-          // boundary; a child whose numbering restarted would hide everything.
-          const byTurn = cut < 0 && typeof boundaryTurn === 'number'
-            && highest !== null && highest > boundaryTurn;
+          const cut = ownMessageIndex(items, first);
+          const byTurn = cut < 0 && typeof boundaryTurn === 'number';
           const turns = new Set();
           let marked = 0;
           for (let index = 0; index < items.length; index += 1) {
             const item = items[index];
             const turn = itemTurn(item);
-            const inherited = cut >= 0 ? index < cut : byTurn && turn !== undefined && turn <= boundaryTurn;
+            const inherited = cut > 0 ? index < cut : byTurn && turn !== undefined && turn <= boundaryTurn;
             if (inherited) {
               item.setAttribute(INHERITED, '');
               if (turn !== undefined) turns.add(turn);
@@ -1155,7 +1056,7 @@ window.__ModuleLoader__.load({
           observer.disconnect();
           if (frame !== null) cancelAnimationFrame(frame);
         };
-      }, [boundaryTurn, inheritedUsers, childId, first]);
+      }, [boundaryTurn, childId, first]);
 
       // Reset (destructive, secondary) sits left of New (additive, brand-tinted):
       // same size and shape, different glyph, colour and tooltip.
@@ -1268,8 +1169,6 @@ window.__ModuleLoader__.load({
         appendDraft: appendDraft,
         selectionText: selectionText,
         capture: capture,
-        ownMessageIndex: ownMessageIndex,
-        nthUserIndex: nthUserIndex,
         sideChatTitle: sideChatTitle,
         nextSideChatIndex: nextSideChatIndex,
       },
