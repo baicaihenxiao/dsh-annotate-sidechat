@@ -23,11 +23,12 @@ created with and the reply, and the next quote waiting in its composer.
 
 ![The main chat with the quote menu open, and a side chat in the right sidebar](docs/sidechat.webp)
 
-> **Status: 1.1.0 — checked headlessly (`node check.mjs`, including a replay of
-> its slot registrations against the host's real slot registry). 1.0.x was
-> tested in a browser on DeepSeek Harness `0.2.0-rc.2`; the 1.1.0 additions —
-> Send to chat, the fork-point notice, and the side-chat session fixes — have
-> not been tried in a browser yet.** See [Checks](#checks).
+> **Status: 1.2.0 — checked headlessly (`node check.mjs`, including a replay of
+> its slot registrations against the host's real slot registry) and tested in a
+> browser on DeepSeek Harness `0.2.0-rc.2` and `0.2.1-rc.2`: the quote menu,
+> sending a side chat, the fork-point notice, Reset and a reload. Send to chat
+> inside a side chat and the cleanup of side chats archived elsewhere have not
+> been tried in a browser yet.** See [Checks](#checks).
 
 ## What it does
 
@@ -180,8 +181,8 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 To remove it again, ask the agent to remove the bundle `dsh-annotate-sidechat`,
 or disable it on DSH's Plugins page.
 
-- Plugin `1.1.0` targets DeepSeek Harness `0.2.0-rc.2`, the host 1.0.x was
-  tested on in a browser. That version is what `peerDependencies` pins, so DSH
+- Plugin `1.2.0` targets DeepSeek Harness `0.2.0-rc.2` and `0.2.1-rc.2`, both
+  tested in a browser. Those versions are what `peerDependencies` pins, so DSH
   refuses to install or activate this bundle on a host it has not been checked
   against — see [Requirements](#requirements) for the exact packages.
 
@@ -195,7 +196,7 @@ itself**. How you update depends on how you installed it:
 |---|---|
 | `github:baicaihenxiao/dsh-annotate-sidechat` | `dsh plugin --profile <profile> update dsh-annotate-sidechat`, or remove the bundle and install it again |
 | a local checkout | `git pull` in the checkout — the profile links the directory |
-| a tag or commit | install the revision you want: `github:baicaihenxiao/dsh-annotate-sidechat#v1.1.0` |
+| a tag or commit | install the revision you want: `github:baicaihenxiao/dsh-annotate-sidechat#v1.2.0` |
 
 Points worth knowing:
 
@@ -205,7 +206,7 @@ Points worth knowing:
   bundle. The `dsh plugin` CLI path only installs the package, so re-select the
   bundle afterwards if you use it.
 - Reload the Web page (or restart `dsh web`) after updating.
-- Pin a release by tag — `#v1.1.0`. A branch name works too. A commit SHA must
+- Pin a release by tag — `#v1.2.0`. A branch name works too. A commit SHA must
   be the full 40 characters: pnpm cannot resolve an abbreviated one.
 - To see what you have installed, read the version in your profile:
 
@@ -218,6 +219,7 @@ Points worth knowing:
 | Plugin | DeepSeek Harness | Node |
 |---|---|---|
 | `1.0.0`, `1.0.1`, `1.1.0` | `0.2.0-rc.2` | `^22.19.0 \|\| >=24.0.0` |
+| `1.2.0` | `0.2.0-rc.2`, `0.2.1-rc.2` | `^22.19.0 \|\| >=24.0.0` |
 
 - A DSH Web profile. Everything the bundle builds on ships with DSH: the right
   sidebar's page registry and `sidebar.right.pane.tab` seat
@@ -240,7 +242,7 @@ Points worth knowing:
   risk explicitly:
 
   ```sh
-  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.1.0 --dsh-version <runtime> --accept-risk
+  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.2.0 --dsh-version <runtime> --accept-risk
   ```
 - The browser module table provides `react` and `react-dom/client`; this bundle
   imports nothing else.
@@ -344,7 +346,7 @@ built-in subagent sidebar chat still works, the inherited-turns toggle appears
 and folds the right rows, a reloaded page keeps its side chat, and a further
 quote lands in an existing side chat's composer.
 
-The `0.2.1-rc.2` support was checked the same way on both `0.2.0-rc.2` and
+1.2.0 was checked the same way on both `0.2.0-rc.2` and
 `0.2.1-rc.2` Web pages (a local mock model answering): both install without an
 exemption, both menu entries, sending a side chat, the inherited-turns toggle,
 the fork-point notice, Reset, a reload, and a further quote landing in a sent
