@@ -228,7 +228,7 @@ Points worth knowing:
   (`@deepseek-ai/dsh-client-locale`) — so the bundle declares no dependencies of
   its own.
 - A DSH version this bundle was verified against. `peerDependencies` pins those
-  four host packages to `0.2.0-rc.2`, and `engines` matches the host's Node range
+  four host packages to `0.2.0-rc.2 || 0.2.1-rc.2`, and `engines` matches the host's Node range
   (`^22.19.0 || >=24.0.0`). DSH's plugin manager evaluates every
   `@deepseek-ai/dsh*` peer range **against the DSH runtime version** and rejects
   installation or activation when one does not match (an `incompatible-version`
@@ -343,6 +343,13 @@ the shipped conversation, the console shows no slot-registry error and the
 built-in subagent sidebar chat still works, the inherited-turns toggle appears
 and folds the right rows, a reloaded page keeps its side chat, and a further
 quote lands in an existing side chat's composer.
+
+The `0.2.1-rc.2` support was checked the same way on both `0.2.0-rc.2` and
+`0.2.1-rc.2` Web pages (a local mock model answering): both install without an
+exemption, both menu entries, sending a side chat, the inherited-turns toggle,
+the fork-point notice, Reset, a reload, and a further quote landing in a sent
+side chat's composer. On `0.2.1-rc.2` a quote sent to the main chat also keeps
+a command chip (`/goal`) already in the composer.
 
 ## License
 

@@ -72,7 +72,7 @@ function find(node, predicate) {
 }
 
 // ── the quote the two menu entries carry ────────────────────────────────────
-const { locationLine, quoteText, draftQuote, appendDraft, sideChatTitle, nextSideChatIndex } = plugin.__test;
+const { locationLine, quoteText, draftQuote, appendDraft, nextDraft, sideChatTitle, nextSideChatIndex } = plugin.__test;
 
 assert.equal(
   locationLine({ part: 'response', turn: 3, block: 'paragraph 2' }),
@@ -92,6 +92,21 @@ assert.ok(!long.includes('…'), 'a long selection is never elided');
 assert.equal(appendDraft('', 'q'), 'q', 'an empty draft takes the quote alone');
 assert.equal(appendDraft('   ', 'q'), 'q', 'a blank draft takes the quote alone');
 assert.equal(appendDraft('typed', 'q'), 'typed\n\nq', 'existing text keeps one blank line before the quote');
+
+// DSH 0.2.0's composer is a plain string; from 0.2.1 it holds reference chips
+// in a semantic document, which the quote must extend rather than flatten.
+const plainInput = { state: { getSnapshot: () => ({ draft: 'typed' }) } };
+assert.equal(nextDraft(plainInput, 'q'), 'typed\n\nq', 'a 0.2.0 composer gets the appended string');
+const fileRef = { source: 'file', ref: 'notes.md', offset: 8, length: 9 };
+const chipInput = {
+  draftSnapshot: { text: 'Look at @notes.md', references: [fileRef] },
+  state: { getSnapshot: () => ({ draft: 'Look at @notes.md' }) },
+};
+assert.deepEqual(
+  nextDraft(chipInput, 'q'),
+  { text: 'Look at @notes.md\n\nq', references: [fileRef] },
+  'a 0.2.1 composer keeps its reference chips under the appended quote',
+);
 
 // What lands in either composer: both menu entries share it, and it ends on a
 // fresh line so the caret waits for the user's own words.

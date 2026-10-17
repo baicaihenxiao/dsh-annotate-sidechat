@@ -271,8 +271,7 @@ window.__ModuleLoader__.load({
           const input = inputOf(ctx, sessionId);
           if (input !== undefined) {
             try {
-              const draft = input.state.getSnapshot().draft;
-              input.setDraft(appendDraft(draft, text));
+              input.setDraft(nextDraft(input, text));
               if (typeof input.focus === 'function') input.focus();
               scrollComposerToEnd(sessionId);
               resolve(true);
@@ -438,6 +437,21 @@ window.__ModuleLoader__.load({
     /** `draft` + one blank line + `text`; `text` alone when the draft is empty. */
     function appendDraft(draft, text) {
       return typeof draft === 'string' && draft.trim() !== '' ? draft + '\n\n' + text : text;
+    }
+
+    /**
+     * What `writeDraft` hands `setDraft`. From DSH 0.2.1 the composer keeps
+     * reference chips in a semantic document (`draftSnapshot`, whose `text` is
+     * the same projection as `state.draft`); appending to that document keeps
+     * them, where the projected string would flatten each chip into plain text.
+     * 0.2.0 has no document, so its string is the whole draft.
+     */
+    function nextDraft(input, text) {
+      const doc = input.draftSnapshot;
+      if (doc !== null && typeof doc === 'object' && typeof doc.text === 'string') {
+        return { ...doc, text: appendDraft(doc.text, text) };
+      }
+      return appendDraft(input.state.getSnapshot().draft, text);
     }
 
     /**
@@ -1861,6 +1875,7 @@ window.__ModuleLoader__.load({
         quoteText: quoteText,
         draftQuote: draftQuote,
         appendDraft: appendDraft,
+        nextDraft: nextDraft,
         ownMessageIndex: ownMessageIndex,
         stepOf: stepOf,
         staleQuote: staleQuote,

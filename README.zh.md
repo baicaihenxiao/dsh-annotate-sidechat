@@ -169,7 +169,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
   factory 与输入框状态机（`@deepseek-ai/dsh-client-ui-conversation`）、会话归档
   （`@deepseek-ai/dsh-client-ui-workspace`）以及语言包注册（`@deepseek-ai/dsh-client-locale`）——
   所以本包自身不声明任何依赖。
-- 一个**已验证过的 DSH 版本**。`peerDependencies` 把上述四个宿主包钉在 `0.2.0-rc.2`，`engines`
+- 一个**已验证过的 DSH 版本**。`peerDependencies` 把上述四个宿主包钉在 `0.2.0-rc.2 || 0.2.1-rc.2`，`engines`
   与宿主的 Node 范围（`^22.19.0 || >=24.0.0`）一致。DSH 的插件管理器会把每个 `@deepseek-ai/dsh*`
   peer 范围**与 DSH 运行时版本**比对，不匹配则拒绝安装或启用（`incompatible-version`）——
   所以在未验证的宿主上是**明确报错**，而不是渲染出一个坏掉的侧边对话。本插件依赖宿主的内部接缝
@@ -255,6 +255,11 @@ DOM 层另外用无头 Chrome 和一个临时脚手架跑过（未提交 —— 
 侧边对话都会渲染 DSH 自带的对话界面；控制台没有 slot 注册表报错，内置的 subagent 侧栏聊天仍然正常；
 继承轮次的切换按钮会出现，并折叠正确的条目；刷新后页面仍认得自己的侧边对话；
 再次引用会进入已有侧边对话的输入框。
+
+对 `0.2.1-rc.2` 的支持以同样方式在 `0.2.0-rc.2` 和 `0.2.1-rc.2` 两个 Web 页面上验证过（由本地模拟模型应答）：
+两者都无需版本豁免即可安装；两个菜单项、发送侧边对话、继承轮次切换按钮、分叉点提示、Reset、刷新，
+以及再次引用进入已发送侧边对话的输入框均正常。在 `0.2.1-rc.2` 上，发到主对话的引用还会保留输入框里
+已有的命令标签（`/goal`）。
 
 ## 许可证
 
