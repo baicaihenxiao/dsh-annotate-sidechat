@@ -897,22 +897,26 @@ window.__ModuleLoader__.load({
     /**
      * The last turn a fresh fork inherited, or null when it cannot be told.
      *
-     * The fork copies an inclusive prefix, so every seq the child shares with
-     * its parent is inherited; the highest shared seq is that prefix's end. The
-     * boundary is the highest turn among the child's own events up to it — the
-     * panel folds turns at or below it away.
+     * The fork copies an inclusive prefix verbatim, so an inherited event is the
+     * parent's event at the same seq with the same type and time; the highest
+     * such seq is that prefix's end. A seq alone is no proof: both sessions
+     * keep numbering after the fork, so the child's own events reuse the seqs
+     * of whatever the parent wrote since (a turn still running when it forked).
+     * The boundary is the highest turn among the child's own events up to it —
+     * the panel folds turns at or below it away.
      */
     function inheritedTurnBoundary(ctx, parentId, childId) {
       const parentEntries = windowEntries(ctx, parentId);
       const childEntries = windowEntries(ctx, childId);
       if (parentEntries === undefined || childEntries === undefined) return null;
-      const parentSeqs = new Set();
-      for (const entry of parentEntries) if (entry.type === 'event') parentSeqs.add(entry.event.seq);
+      const parentEvents = new Map();
+      for (const entry of parentEntries) if (entry.type === 'event') parentEvents.set(entry.event.seq, entry.event);
       let boundarySeq = null;
       for (const entry of childEntries) {
         if (entry.type !== 'event') continue;
         const seq = entry.event.seq;
-        if (!parentSeqs.has(seq)) continue;
+        const copied = parentEvents.get(seq);
+        if (copied === undefined || copied.type !== entry.event.type || copied.time !== entry.event.time) continue;
         if (boundarySeq === null || seq > boundarySeq) boundarySeq = seq;
       }
       if (boundarySeq === null) return null;
@@ -1033,6 +1037,33 @@ window.__ModuleLoader__.load({
           params: { ...sideChatParams(entry), ...cwd === undefined ? {} : { cwd: cwd } },
         });
       } catch (error) { /* the layout is gone; the page keeps its previous params */ }
+    }
+
+    /**
+     * Re-derive a sent side chat's fork boundary each time its page opens it, so
+     * a page that stored a wrong one — 1.2.0 and earlier took the main chat's
+     * later seqs for inherited ones, folding the chat's own first turn away —
+     * folds the right turns again. The main chat is held only for the read; a
+     * boundary that cannot be told leaves the stored one alone.
+     * @param reference - the page's own hold on the child.
+     */
+    async function recheckBoundary(ctx, chats, id, reference) {
+      const entry = chats.get(id);
+      if (entry.childId === null || entry.parentId === '') return;
+      let parent;
+      try {
+        parent = ctx.sessions.retain(entry.parentId, { source: 'sidebarChat' });
+        await Promise.all([parent.ready, reference.ready]);
+        const turn = inheritedTurnBoundary(ctx, entry.parentId, entry.childId);
+        const now = chats.get(id);
+        if (turn === null || now.childId !== entry.childId || now.boundaryTurn === turn) return;
+        chats.patch(id, { boundaryTurn: turn });
+        refreshSideChatPage(ctx, chats, id);
+      } catch (error) {
+        /* either chat could not be opened: keep the stored boundary */
+      } finally {
+        if (parent !== undefined) { try { parent.release(); } catch (error) { /* already released */ } }
+      }
     }
 
     /** The side chat the right sidebar currently shows, when there is one. */
@@ -1658,6 +1689,10 @@ window.__ModuleLoader__.load({
         }
       }, [childId, gone]);
 
+      React.useEffect(() => {
+        if (reference !== null) void props.recheckBoundary(id, reference);
+      }, [reference]);
+
       // The inherited history opens at its end, the way a sent chat's transcript
       // does: the newest turns sit right above the composer instead of the page
       // showing the oldest ones with the rest hidden below the fold.
@@ -1877,6 +1912,8 @@ window.__ModuleLoader__.load({
         appendDraft: appendDraft,
         nextDraft: nextDraft,
         ownMessageIndex: ownMessageIndex,
+        inheritedTurnBoundary: inheritedTurnBoundary,
+        recheckBoundary: recheckBoundary,
         stepOf: stepOf,
         staleQuote: staleQuote,
         childGone: childGone,
@@ -1954,6 +1991,7 @@ window.__ModuleLoader__.load({
             newSideChat: (id) => newSideChat(ctx, chats, id),
             resetSideChat: (id) => resetSideChat(ctx, chats, id, t),
             sendSideChat: (id) => { void submitSideChat(ctx, chats, id, t); },
+            recheckBoundary: (id, reference) => recheckBoundary(ctx, chats, id, reference),
             // One stable pair, so a page's subscription never churns.
             childGone: (childId) => !chats.isResetting(childId) && childGone(ctx, childId),
             subscribeChildLists: (fn) => subscribeChildLists(ctx, fn),

@@ -133,6 +133,38 @@ assert.equal(ownMessageIndex(rows, sent, 4), 2, 'an inherited quote of the same 
 assert.equal(ownMessageIndex(rows, sent, null), 2, 'without a turn boundary the longer needle still tells them apart');
 assert.equal(ownMessageIndex(rows, 'not on the page', 4), -1, 'a message not on the page is not found');
 
+// The fork point is the last event the child copied verbatim. Both sessions keep
+// numbering after it, so when the main chat was mid-turn at the fork its turn-3
+// events share seqs with the side chat's own turn 3; those are not inherited.
+const { inheritedTurnBoundary } = plugin.__test;
+const ev = (seq, type, time, data) => ({ type: 'event', event: { seq, type, time, data } });
+const shared = [ev(4, 'turn/start', 10, { turn: 1 }), ev(42, 'turn/start', 20, { turn: 2 }), ev(49, 'turn/end', 30, { turn: 2 })];
+const windows = {
+  main: [...shared, ev(50, 'agent/inbox/spliced', 40, {}), ev(51, 'turn/start', 41, { turn: 3 }), ev(53, 'step/start', 42, { turn: 3 })],
+  side: [...shared, ev(50, 'session/end-seed', 30, { inherited: true }), ev(51, 'session/title', 90, {}), ev(53, 'turn/start', 91, { turn: 3 })],
+};
+const windowCtx = { sessions: { binding: (id) => ({ eventSource: { getSnapshot: () => ({ entries: windows[id] }) } }) } };
+assert.equal(inheritedTurnBoundary(windowCtx, 'main', 'side'), 2, 'seqs the main chat wrote after the fork are not inherited');
+
+// A page that stored the old, wrong boundary is corrected when it opens its chat,
+// holding the main chat only for that read; one that cannot be told is left alone.
+const { recheckBoundary } = plugin.__test;
+let parentHeld = 0;
+const recheckCtx = {
+  ...windowCtx,
+  sessions: { ...windowCtx.sessions, retain: () => { parentHeld += 1; return { ready: Promise.resolve(), release: () => { parentHeld -= 1; } }; } },
+  get: () => undefined,
+};
+const page = { id: 'p', parentId: 'main', childId: 'side', boundaryTurn: 3 };
+const pageStore = { get: () => page, patch: (_id, next) => Object.assign(page, next), tabOfId: () => undefined };
+await recheckBoundary(recheckCtx, pageStore, 'p', { ready: Promise.resolve() });
+assert.equal(page.boundaryTurn, 2, 'a stored boundary past the fork is corrected');
+assert.equal(parentHeld, 0, 'the main chat is let go after the read');
+page.childId = 'unknown';
+page.boundaryTurn = 3;
+await recheckBoundary({ ...recheckCtx, sessions: { ...recheckCtx.sessions, binding: () => undefined } }, pageStore, 'p', { ready: Promise.resolve() });
+assert.equal(page.boundaryTurn, 3, 'a boundary that cannot be told keeps the stored one');
+
 // ── where a selected reply can be quoted to ────────────────────────────────
 // A fake element answers `closest` for any selector naming one of its marks.
 class FakeElement {
