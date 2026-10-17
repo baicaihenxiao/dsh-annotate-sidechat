@@ -23,12 +23,12 @@ created with and the reply, and the next quote waiting in its composer.
 
 ![The main chat with the quote menu open, and a side chat in the right sidebar](docs/sidechat.webp)
 
-> **Status: 1.2.0 — checked headlessly (`node check.mjs`, including a replay of
+> **Status: 1.2.1 — checked headlessly (`node check.mjs`, including a replay of
 > its slot registrations against the host's real slot registry) and tested in a
 > browser on DeepSeek Harness `0.2.0-rc.2` and `0.2.1-rc.2`: the quote menu,
-> sending a side chat, the fork-point notice, Reset and a reload. Send to chat
-> inside a side chat and the cleanup of side chats archived elsewhere have not
-> been tried in a browser yet.** See [Checks](#checks).
+> sending a side chat, the fork-point notice, Reset and a reload; the 1.2.1 fold
+> fix on `0.2.1-rc.2`. Send to chat inside a side chat and the cleanup of side
+> chats archived elsewhere have not been tried in a browser yet.** See [Checks](#checks).
 
 ## What it does
 
@@ -181,7 +181,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 To remove it again, ask the agent to remove the bundle `dsh-annotate-sidechat`,
 or disable it on DSH's Plugins page.
 
-- Plugin `1.2.0` targets DeepSeek Harness `0.2.0-rc.2` and `0.2.1-rc.2`, both
+- Plugin `1.2.1` targets DeepSeek Harness `0.2.0-rc.2` and `0.2.1-rc.2`, both
   tested in a browser. Those versions are what `peerDependencies` pins, so DSH
   refuses to install or activate this bundle on a host it has not been checked
   against — see [Requirements](#requirements) for the exact packages.
@@ -196,7 +196,7 @@ itself**. How you update depends on how you installed it:
 |---|---|
 | `github:baicaihenxiao/dsh-annotate-sidechat` | `dsh plugin --profile <profile> update dsh-annotate-sidechat`, or remove the bundle and install it again |
 | a local checkout | `git pull` in the checkout — the profile links the directory |
-| a tag or commit | install the revision you want: `github:baicaihenxiao/dsh-annotate-sidechat#v1.2.0` |
+| a tag or commit | install the revision you want: `github:baicaihenxiao/dsh-annotate-sidechat#v1.2.1` |
 
 Points worth knowing:
 
@@ -206,7 +206,7 @@ Points worth knowing:
   bundle. The `dsh plugin` CLI path only installs the package, so re-select the
   bundle afterwards if you use it.
 - Reload the Web page (or restart `dsh web`) after updating.
-- Pin a release by tag — `#v1.2.0`. A branch name works too. A commit SHA must
+- Pin a release by tag — `#v1.2.1`. A branch name works too. A commit SHA must
   be the full 40 characters: pnpm cannot resolve an abbreviated one.
 - To see what you have installed, read the version in your profile:
 
@@ -219,7 +219,7 @@ Points worth knowing:
 | Plugin | DeepSeek Harness | Node |
 |---|---|---|
 | `1.0.0`, `1.0.1`, `1.1.0` | `0.2.0-rc.2` | `^22.19.0 \|\| >=24.0.0` |
-| `1.2.0` | `0.2.0-rc.2`, `0.2.1-rc.2` | `^22.19.0 \|\| >=24.0.0` |
+| `1.2.0`, `1.2.1` | `0.2.0-rc.2`, `0.2.1-rc.2` | `^22.19.0 \|\| >=24.0.0` |
 
 - A DSH Web profile. Everything the bundle builds on ships with DSH: the right
   sidebar's page registry and `sidebar.right.pane.tab` seat
@@ -242,7 +242,7 @@ Points worth knowing:
   risk explicitly:
 
   ```sh
-  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.2.0 --dsh-version <runtime> --accept-risk
+  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.2.1 --dsh-version <runtime> --accept-risk
   ```
 - The browser module table provides `react` and `react-dom/client`; this bundle
   imports nothing else.
@@ -267,7 +267,7 @@ Points worth knowing:
 | `[data-sidebar-right-*]` | Keeping sidebar selections out of the quote menu, except in a sent side chat's body (marked by the plugin with its child session) |
 | `ctx.sessions.fork` / `retain` / `binding.session` | Creating the child on send, renaming it, sending its first prompt, and holding it for as long as its page is open — like the host's own sidebar chat, not only while the page is on screen, so opening the side chat in the main column and coming back never reopens it under the panel |
 | `[data-chat-flow-key]` / `[data-chat-flow-kind="user"]` | Cutting the transcript at this side chat's own first message (the turn boundary from the event windows is the fallback) |
-| `ctx.sessions.binding().eventSource` | Which turns a fresh fork inherited (the child's window ∩ its parent's), for folding them away |
+| `ctx.sessions.binding().eventSource` | Which turns a fork inherited (the child's events that are verbatim copies of its parent's — same seq, type and time), for folding them away; re-derived each time a sent page opens |
 | `ctx.sessions.list` | Numbering side chats and reading the main chat's title |
 | `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` / `isExpanded` / `focus` / `registerCloseHandler` | Opening a page per side chat (retried while the surface mounts), rewriting its params in place, finding the open one, bringing it into view, and forgetting a closed page |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
@@ -295,7 +295,9 @@ its tab chip), the pending panel for both a menu-opened and a guide-opened page
 for Reset, brand tone for New — and a transcript that takes the room above a
 content-sized composer card whose rows scroll inside it), the primary hover
 fill, the inherited-prefix collapse rule, a fold boundary that an inherited
-quote of the same spot cannot capture, where a selected reply quotes to (the
+quote of the same spot cannot capture, a fork point that ignores the seqs the
+main chat wrote after the fork (and a sent page correcting a stored boundary
+past it), where a selected reply quotes to (the
 main chat, a sent side chat, or nowhere for a pending page's copied rows, other
 sidebar chats and replies still being written), and the one-item `Send to chat`
 menu that hands its quote to that side chat, the notice for a quote newer
@@ -352,6 +354,12 @@ exemption, both menu entries, sending a side chat, the inherited-turns toggle,
 the fork-point notice, Reset, a reload, and a further quote landing in a sent
 side chat's composer. On `0.2.1-rc.2` a quote sent to the main chat also keeps
 a command chip (`/goal`) already in the composer.
+
+1.2.1 was checked on a real `0.2.1-rc.2` Web page against a side chat forked
+while the main chat had a turn still running: with the boundary 1.2.0 stored,
+its own first turn was folded away under "3 turns inherited"; once the page
+re-derived it, the toggle read 2 turns, the side chat's own turn stayed in
+view, the corrected boundary was written back to the page, and a reload kept it.
 
 ## License
 

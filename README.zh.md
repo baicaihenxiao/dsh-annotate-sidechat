@@ -19,10 +19,10 @@
 
 ![主对话里的引用菜单，以及右侧栏中的侧边对话](docs/sidechat.webp)
 
-> **状态：1.2.0 —— 已通过无头检查（`node check.mjs`，其中包括把插件的 slot 注册放到宿主真实的
+> **状态：1.2.1 —— 已通过无头检查（`node check.mjs`，其中包括把插件的 slot 注册放到宿主真实的
 > slot 注册表上重放），并在 DeepSeek Harness `0.2.0-rc.2` 和 `0.2.1-rc.2` 的浏览器页面上验证了引用菜单、
-> 发送侧边对话、fork 点提示、Reset 和刷新。侧边对话内的发送到此对话、以及清理在别处归档的侧边对话，
-> 尚未在浏览器中验证。** 见[检查](#检查)。
+> 发送侧边对话、fork 点提示、Reset 和刷新；1.2.1 的折叠修复在 `0.2.1-rc.2` 上验证。侧边对话内的发送到此对话、
+> 以及清理在别处归档的侧边对话，尚未在浏览器中验证。** 见[检查](#检查)。
 
 ## 功能
 
@@ -131,7 +131,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 
 卸载：让 agent 移除 bundle `dsh-annotate-sidechat`，或在 DSH 的 Plugins 页面停用它。
 
-- 插件 `1.2.0` 面向 DeepSeek Harness `0.2.0-rc.2` 和 `0.2.1-rc.2`，两者都在浏览器中验证过。`peerDependencies`
+- 插件 `1.2.1` 面向 DeepSeek Harness `0.2.0-rc.2` 和 `0.2.1-rc.2`，两者都在浏览器中验证过。`peerDependencies`
   钉的就是这两个版本，因此 DSH 会拒绝在未经检查的宿主上安装或启用本 bundle —— 具体钉了哪些包见[依赖要求](#依赖要求)。
 
 ## 更新
@@ -143,7 +143,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 |---|---|
 | `github:baicaihenxiao/dsh-annotate-sidechat` | `dsh plugin --profile <profile> update dsh-annotate-sidechat`，或先移除 bundle 再装一次 |
 | 本地克隆目录 | 在克隆目录里 `git pull` —— profile 链接的就是该目录 |
-| 指定 tag 或 commit | 安装你要的修订：`github:baicaihenxiao/dsh-annotate-sidechat#v1.2.0` |
+| 指定 tag 或 commit | 安装你要的修订：`github:baicaihenxiao/dsh-annotate-sidechat#v1.2.1` |
 
 需要知道的几点：
 
@@ -151,7 +151,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 - `plugin_manager` 的 `install_bundle` 会「装包 + 选中 bundle」两件事一起做；而 `dsh plugin`
   这条 CLI 通道只装包，用完之后需要重新选中 bundle。
 - 更新后刷新 Web 页面（或重启 `dsh web`）。
-- 用 tag 固定版本：`#v1.2.0`；分支名也可以。若用 commit SHA，必须是完整 40 位 ——
+- 用 tag 固定版本：`#v1.2.1`；分支名也可以。若用 commit SHA，必须是完整 40 位 ——
   pnpm 无法解析缩写 SHA。
 - 查看已装版本：
 
@@ -164,7 +164,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 | 插件 | DeepSeek Harness | Node |
 |---|---|---|
 | `1.0.0`, `1.0.1`, `1.1.0` | `0.2.0-rc.2` | `^22.19.0 \|\| >=24.0.0` |
-| `1.2.0` | `0.2.0-rc.2`, `0.2.1-rc.2` | `^22.19.0 \|\| >=24.0.0` |
+| `1.2.0`, `1.2.1` | `0.2.0-rc.2`, `0.2.1-rc.2` | `^22.19.0 \|\| >=24.0.0` |
 
 - 一个 DSH Web profile。本插件依赖的东西都随 DSH 提供：右侧栏的页面注册表与
   `sidebar.right.pane.tab` 座位（`@deepseek-ai/dsh-client-ui-sidebar-right`）、`conversation.content`
@@ -179,7 +179,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
   若确需提前使用，可以授予**精确版本豁免**，即显式接受该风险：
 
   ```sh
-  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.2.0 --dsh-version <runtime> --accept-risk
+  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.2.1 --dsh-version <runtime> --accept-risk
   ```
 - `react` 与 `react-dom/client` 由浏览器模块表提供，除此之外不导入任何东西。
 
@@ -203,7 +203,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 | `[data-sidebar-right-*]` | 把侧栏里的选区排除在引用菜单之外，已发送侧边对话的主体除外（插件给它标上了子对话 id） |
 | `ctx.sessions.fork` / `retain` / `binding.session` | 发送时创建子对话、重命名、发出第一条消息，并在页面存在期间一直持有它 —— 与宿主自带的侧栏聊天一样，而不只是页面显示时，所以在主对话区打开该侧边对话再切回来，面板下的会话不会被重新打开 |
 | `[data-chat-flow-key]` / `[data-chat-flow-kind="user"]` | 在本侧边对话第一条消息处切开记录（事件窗口给出的轮次边界作为后备） |
-| `ctx.sessions.binding().eventSource` | 新 fork 继承了哪些轮次（子对话窗口 ∩ 父对话窗口），用于折叠 |
+| `ctx.sessions.binding().eventSource` | fork 继承了哪些轮次（子对话中与父对话 seq、类型、时间都相同、即原样复制来的事件），用于折叠；已发送页面每次打开时重新计算 |
 | `ctx.sessions.list` | 给侧边对话编号，读取主对话标题 |
 | `ctx.sidebarRight.openTab`（`replaceTab`）+ `active` / `mounted` / `isExpanded` / `focus` / `registerCloseHandler` | 每个侧边对话开一页（界面挂载期间重试）、原地改写页面参数、找到当前打开的那页、让它显示出来，以及忘掉已关闭的页面 |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | 页面类型、页面主体，以及标明每个侧边对话的标签名 |
@@ -227,7 +227,7 @@ node check.mjs
 从菜单打开与从引导入口打开两种情况下的未发送面板（重置在新建左侧，各有图标、样式类和提示文字 ——
 重置是警示色，新建是品牌色 —— 以及占满输入卡片上方空间、在自身框内滚动的记录，
 下方是按内容定高的输入卡片）、主按钮悬停底色、继承前缀的折叠规则、不会被继承来的同位置引用
-抢走的折叠边界、选中的回复引用到哪里（主对话、已发送的侧边对话；未发送页面里复制来的条目、
+抢走的折叠边界、不把主对话在 fork 之后写入的 seq 算作继承的 fork 点（以及已发送页面修正存下的错误边界）、选中的回复引用到哪里（主对话、已发送的侧边对话；未发送页面里复制来的条目、
 其他侧栏聊天和仍在生成的回复则不出菜单）、把引用交给该侧边对话的单项 `发送到此对话` 菜单，
 引用晚于当前侧边对话 fork 点时弹出的说明（哪些轮次算晚于 fork 点、取消与发送到新侧边对话
 两个选项，以及选区事件不会把它冲掉）、页面在关闭前一直持有它的侧边对话，以及对在别处归档或
@@ -262,6 +262,10 @@ DOM 层另外用无头 Chrome 和一个临时脚手架跑过（未提交 —— 
 两者都无需版本豁免即可安装；两个菜单项、发送侧边对话、继承轮次切换按钮、分叉点提示、Reset、刷新，
 以及再次引用进入已发送侧边对话的输入框均正常。在 `0.2.1-rc.2` 上，发到主对话的引用还会保留输入框里
 已有的命令标签（`/goal`）。
+
+1.2.1 在真实的 `0.2.1-rc.2` Web 页面上验证过，对象是主对话某一轮仍在运行时 fork 出的侧边对话：
+用 1.2.0 存下的边界时，它自己的第一轮被折进「继承自主对话 3 轮」；页面重新计算后显示 2 轮，
+侧边对话自己的那一轮保持可见，修正后的边界写回了页面，刷新后保持不变。
 
 ## 许可证
 
