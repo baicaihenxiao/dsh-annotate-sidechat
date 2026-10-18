@@ -103,7 +103,12 @@ created with and the reply, and the next quote waiting in its composer.
    so is everything older once 24 KB is used, newest first. When anything was
    left out, a centred dashed rule after the last previewed message says
    `Long messages not previewed here`; the side chat shows every message once
-   it is sent, because it then renders the forked chat itself.
+   it is sent, because it then renders the forked chat itself. The host also
+   pages a long chat's history in, so only its latest turns may be on screen:
+   the inherited-turn count is the main chat's last completed turn number, not
+   the turns shown (a sent page counts by its fork boundary the same way), and
+   when the oldest turns were not loaded a centred dashed rule heading the
+   preview says `Earlier turns not loaded here`.
 6. **The chat is created on send, not on click.** Until a composer is sent, the
    page is a plain editable draft and **no chat exists** in the session list.
    Sending forks the main chat (`sessions.fork` with no explicit boundary, so the

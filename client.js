@@ -55,6 +55,7 @@ window.__ModuleLoader__.load({
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': '隐藏继承内容',
       'sideChat.inheritEmpty': '主对话还没有已完成的内容',
+      'sideChat.inheritEarlier': '更早的轮次未在此加载',
       'sideChat.inheritMore': '较长的消息未在此预览',
       'sideChat.inherited': '继承 {turns} 轮',
       'sideChat.inheritedOne': '继承 {turns} 轮',
@@ -95,6 +96,7 @@ window.__ModuleLoader__.load({
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': 'Hide inherited',
       'sideChat.inheritEmpty': 'The main chat has nothing completed yet',
+      'sideChat.inheritEarlier': 'Earlier turns not loaded here',
       'sideChat.inheritMore': 'Long messages not previewed here',
       'sideChat.inherited': '{turns} turns inherited',
       'sideChat.inheritedOne': '{turns} turn inherited',
@@ -880,11 +882,16 @@ window.__ModuleLoader__.load({
         used += markup.length;
         kept.unshift(markup);
       }
+      // The host pages its history in, so a long chat has only its latest turns
+      // on screen. Turn numbers are the session's own, so the last completed one
+      // is how many turns the fork inherits; `earliest` above 1 says the older
+      // ones are not loaded here.
       return {
         columnClass: typeof column.className === 'string' ? column.className : '',
         html: kept.join(''),
         messages: items.length,
-        turns: turns.size,
+        turns: boundary !== null ? boundary : turns.size,
+        earliest: turns.size === 0 ? 0 : Math.min(...turns),
         hidden: items.length - kept.length,
       };
     }
@@ -1404,6 +1411,8 @@ window.__ModuleLoader__.load({
 .dsh-note-skipped::before, .dsh-note-skipped::after {
   content: ''; flex: 1 1 0; border-top: 1px dashed var(--dsw-alias-border-l3);
 }
+/* The same rule heading the preview, for turns the main chat had not paged in. */
+.dsh-note-earlier { padding: 4px 0 12px; }
 /* The composer card, its type and its send button copy the host composer
    (InputBar.module.css): same panel radius, input fill and elevation, the same
    content font size, and the same 34px round send button. */
@@ -1875,7 +1884,10 @@ window.__ModuleLoader__.load({
               item.removeAttribute(INHERITED);
             }
           }
-          setInherited(turns.size > 0 ? turns.size : marked);
+          // The fork's boundary is the session's own turn number, so it counts
+          // the inherited turns even while older history pages are not loaded.
+          setInherited(typeof boundaryTurn === 'number' && boundaryTurn > 0 ? boundaryTurn
+            : (turns.size > 0 ? turns.size : marked));
         };
         mark();
         const observer = new MutationObserver(() => {
@@ -1944,6 +1956,11 @@ window.__ModuleLoader__.load({
           origin === null || origin.html === ''
             ? h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritEmpty'))
             : [
+                // The main chat had not paged its oldest turns in: those really
+                // are the earliest, so this note heads the preview.
+                typeof origin.earliest === 'number' && origin.earliest > 1
+                  ? h('div', { key: 'earlier', className: 'dsh-note-skipped dsh-note-earlier' }, t('sideChat.inheritEarlier'))
+                  : null,
                 h('div', {
                   key: 'rows',
                   className: origin.columnClass || '',

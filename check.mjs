@@ -439,8 +439,19 @@ assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane ses
   document.querySelectorAll = () => [];
   await injected.resetSideChat(page.id);
   assert.equal(chats.get(page.id).inherited, twoTurns, 'with the main chat off screen the old history stays');
+
+  // A long main chat pages its history in: only turns 4–8 are on screen.
+  const paged = [4, 5, 6, 7, 8].flatMap((turn) => [row('user', turn), row('assistant-step', turn)]);
+  mainChat.querySelector = () => paged[0];
+  mainChat.querySelectorAll = () => paged;
+  document.querySelectorAll = (selector) => (selector === '[data-conversation-session]' ? [mainChat] : []);
+  const pagedPage = chats.create('parent-reset');
+  assert.equal(pagedPage.inherited.turns, 8, 'the count is the last completed turn, not the turns on screen');
+  assert.equal(pagedPage.inherited.earliest, 4, 'and the preview knows its oldest turns were not loaded');
   delete document.querySelectorAll;
 }
+assert.match(source, /setInherited\(typeof boundaryTurn === 'number' && boundaryTurn > 0 \? boundaryTurn/,
+  'a sent page counts its inherited turns by the fork boundary, loaded or not');
 
 // ── a page holds its side chat until it closes, not while it is mounted ────
 // A body unmounts on every session switch. If the side chat's last reference
@@ -622,6 +633,19 @@ assert.equal(previewRows[previewRows.length - 1].props.className, 'dsh-note-skip
   'the left-out note follows the last previewed message');
 assert.equal(previewRows[previewRows.length - 1].children[0], 'sideChat.inheritMore', 'and says long messages were left out');
 assert.match(source, /\.dsh-note-skipped::before, \.dsh-note-skipped::after \{[^}]*dashed/, 'as a centred, dashed rule');
+assert.equal(previewRows.find((node) => String(node.props.className).includes('dsh-note-earlier')), undefined,
+  'a preview that starts at turn 1 has no note on earlier turns');
+
+// Turns the main chat had not paged in really are the earliest: their note heads the preview.
+const earlierTree = panelOf({
+  id: 'note-earlier', parentId: 'parent-earlier', index: 1,
+  inherited: { columnClass: '', html: '<div>turn 4 row</div>', messages: 10, turns: 8, earliest: 4, hidden: 0 },
+}, 'parent-earlier', 'tab-earlier');
+const earlierRows = find(earlierTree, (node) => node.props.className === 'dsh-note-transcriptRows').children.flat().filter(Boolean);
+assert.ok(earlierRows[0].props.className.includes('dsh-note-earlier'), 'the earlier-turns note heads the preview');
+assert.equal(earlierRows[0].children[0], 'sideChat.inheritEarlier', 'and says the earlier turns are not loaded');
+assert.equal(find(earlierTree, (node) => node.props.className === 'dsh-note-toolNote').children[0],
+  'sideChat.inherited{"turns":8}', 'while the toolbar counts all 8 turns');
 
 storage.set('dsh-annotate-sidechat:page:tab-child', JSON.stringify({
   at: Date.now(),
