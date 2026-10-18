@@ -242,10 +242,17 @@ node check.mjs
 删除的侧边对话的清理（列表就绪后才判断归档或缺失、当前屏幕上对话的页面关闭 —— 无论来自内存
 还是记录 —— 其他对话的页面先放开子对话、重置不受影响，以及已消失的页面不渲染该对话的任何内容）。
 
-本地装有 `dsh` 时，检查还会把本插件的每一次 slot 注册放到宿主真实的 `SlotCore`
-（`@deepseek-ai/dsh-client-ui-slots`，在 `dsh` 可执行文件旁边找到）上重放，并与内置 subagent
-侧栏聊天的注册放在一起，两种加载顺序都试 —— 上面的桩会接受一次重复声明，而真实注册表会拒绝。
-`PATH` 里没有 `dsh` 时会跳过这一步，并明确说明。
+检查还会把本插件的每一次 slot 注册放到宿主真实的 `SlotCore`（`@deepseek-ai/dsh-client-ui-slots`）
+上重放，并与内置 subagent 侧栏聊天的注册放在一起，两种加载顺序都试 —— 上面的桩会接受一次重复声明，
+而真实注册表会拒绝。`dsh` `0.2.0-rc.2` 把这个包装在 `dsh` 可执行文件旁边，经 `PATH` 即可找到；
+`0.2.1-rc.2` 只把 `SlotCore` 打包进了 Web 应用，需要单独安装这个包，并用 `DSH_SLOTS_MODULE` 指向它：
+
+```sh
+npm install --prefix /tmp/dsh-slots @deepseek-ai/dsh-client-ui-slots@0.2.1-rc.2
+DSH_SLOTS_MODULE=/tmp/dsh-slots/node_modules/@deepseek-ai/dsh-client-ui-slots/lib/index.js node check.mjs
+```
+
+两者都没有时会跳过这一步，并明确说明。
 
 DOM 层另外用无头 Chrome 和一个临时脚手架跑过（未提交 —— 它需要本地 Chrome 和 `puppeteer-core`）：
 两项菜单；侧栏里的选区不出菜单；侧栏里的 mousedown 不被拦截；`发送到主对话` 在一个空行后追加、

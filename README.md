@@ -323,12 +323,20 @@ the on-screen chat's pages closing — from memory or their record — another
 chat's page letting its child go, Reset left alone, and a gone page rendering
 nothing of its chat).
 
-With a local `dsh` install the check also replays every slot registration this
-plugin makes against the host's real `SlotCore`
-(`@deepseek-ai/dsh-client-ui-slots`, found next to the `dsh` binary), beside the
+The check also replays every slot registration this plugin makes against the
+host's real `SlotCore` (`@deepseek-ai/dsh-client-ui-slots`), beside the
 built-in subagent chat's, in both load orders — the stubs above would accept a
-second declaration that the real registry refuses. Without `dsh` on the `PATH`
-that step is skipped and the check says so.
+second declaration that the real registry refuses. A `dsh` `0.2.0-rc.2` install
+ships that package next to the `dsh` binary and is found from the `PATH`;
+`0.2.1-rc.2` only bundles `SlotCore` into the web app, so install the package
+separately and point `DSH_SLOTS_MODULE` at it:
+
+```sh
+npm install --prefix /tmp/dsh-slots @deepseek-ai/dsh-client-ui-slots@0.2.1-rc.2
+DSH_SLOTS_MODULE=/tmp/dsh-slots/node_modules/@deepseek-ai/dsh-client-ui-slots/lib/index.js node check.mjs
+```
+
+Without either, that step is skipped and the check says so.
 
 The DOM layer was additionally driven through headless Chrome with a scratch
 harness (not committed — it needs a local Chrome plus `puppeteer-core`): the

@@ -364,9 +364,13 @@ for (const key of ['action.toMain', 'action.toSide', 'guide.description', 'sideC
 // The stubs accept anything; the host's SlotCore refuses a second declaration
 // of a child slot and a second occupant of a single one. ui-subagent ships in
 // every Web profile and owns `sidebar.chat.conversation`, so this plugin's
-// registrations must fit beside its own, in either load order. Needs a local
-// `dsh` install; without one the replay is skipped, and says so.
+// registrations must fit beside its own, in either load order. 0.2.0-rc.2
+// ships dsh-client-ui-slots beside the `dsh` bin; 0.2.1-rc.2 only bundles
+// SlotCore into the web app, so point DSH_SLOTS_MODULE at a separately
+// installed dsh-client-ui-slots/lib/index.js. Without either the replay is
+// skipped, and says so.
 function hostSlotsModule() {
+  if (process.env.DSH_SLOTS_MODULE) return process.env.DSH_SLOTS_MODULE;
   try {
     const bin = realpathSync(execFileSync('which', ['dsh'], { encoding: 'utf8' }).trim());
     const file = join(dirname(bin), '..', 'node_modules', '@deepseek-ai', 'dsh-client-ui-slots', 'lib', 'index.js');
@@ -375,7 +379,7 @@ function hostSlotsModule() {
 }
 const slotsModule = hostSlotsModule();
 if (slotsModule === undefined) {
-  console.log('skip — no local dsh install: the real slot registry replay did not run');
+  console.log('skip — no dsh-client-ui-slots beside the local dsh (0.2.1-rc.2 does not ship it): the real slot registry replay did not run; set DSH_SLOTS_MODULE to a dsh-client-ui-slots/lib/index.js to run it');
 } else {
   const { SlotCore } = await import(pathToFileURL(slotsModule).href);
   const subagent = [
