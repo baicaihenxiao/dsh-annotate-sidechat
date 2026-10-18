@@ -51,6 +51,8 @@ window.__ModuleLoader__.load({
       'action.toNewSide': '发送到新的侧边对话',
       'action.toSide': '侧边对话',
       'guide.description': '不引用也能直接输入；发送后新建 sidechat- 对话',
+      'header.newSideChat': '新建侧边对话',
+      'header.newSideChatHint': '在侧边栏打开一个新的侧边对话；已有未使用的就跳到那一页',
       'mainChat.failed': '无法写入主对话的输入框。',
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': '隐藏继承内容',
@@ -92,6 +94,8 @@ window.__ModuleLoader__.load({
       'action.toNewSide': 'Send to a new side chat',
       'action.toSide': 'Side chat',
       'guide.description': 'Type directly — no quote needed; sending creates a sidechat- chat',
+      'header.newSideChat': 'New side chat',
+      'header.newSideChatHint': 'Open a new side chat in the sidebar, or go to the unused one already open',
       'mainChat.failed': 'The main chat composer could not be reached.',
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': 'Hide inherited',
@@ -570,6 +574,11 @@ window.__ModuleLoader__.load({
         of(parentId) {
           return Array.from(entries.values()).filter((entry) => entry.parentId === parentId);
         },
+        /** The side chat whose sent child is `childId`, for naming it in the menu. */
+        ofChild(childId) {
+          for (const entry of entries.values()) if (entry.childId === childId) return entry;
+          return EMPTY;
+        },
         /** Mint the side chat a page opened without params (the guide) belongs to. */
         forTab(tabId, parentId) {
           const known = tabIds.get(tabId);
@@ -1020,14 +1029,13 @@ window.__ModuleLoader__.load({
      * and the page is focused (raising it when it floats). Without this a quote
      * aimed at a tab the user cannot see looks like nothing happened.
      */
-    function revealSideChat(ctx, chats, entry) {
+    function revealSideChat(ctx, tabId) {
       const sidebar = sidebarRightOf(ctx);
       if (sidebar === undefined) return;
       try {
         if (typeof sidebar.isExpanded === 'function' && typeof sidebar.toggleExpanded === 'function'
           && sidebar.isExpanded() === false) sidebar.toggleExpanded();
       } catch (error) { /* no surface to expand yet */ }
-      const tabId = chats.tabOfId(entry.id);
       if (tabId === undefined) return;
       try { sidebar.focus(tabId); } catch (error) { /* the page is gone */ }
     }
@@ -1251,6 +1259,39 @@ window.__ModuleLoader__.load({
       openSideChatPage(ctx, chats.get(created.id));
     }
 
+    /**
+     * The main chat header's `New side chat`: go to a page of this chat that is
+     * open but unused — never sent, nothing typed — else open a new one. Either
+     * way the column shows it and its composer takes the keyboard (a page body
+     * focuses its composer when it mounts, and again on each `focusToken`).
+     * A page not rendered since a reload is read from its kept record.
+     */
+    function openUnusedSideChat(ctx, chats, parentId) {
+      const sidebar = sidebarRightOf(ctx);
+      if (sidebar === undefined || typeof parentId !== 'string' || parentId === '') return;
+      let tabs = [];
+      try { tabs = sidebar.openTabs.getSnapshot(); } catch (error) { /* no inventory: open a new page */ }
+      const unused = tabs.find((tab) => {
+        if (tab.kind !== TAB_KIND || tab.sessionId !== parentId) return false;
+        const id = chats.idOfTab(tab.tabId);
+        const page = id === undefined ? readPage(tab.tabId) : chats.get(id);
+        return page !== null && typeof page.childId !== 'string'
+          && (typeof page.draft !== 'string' || page.draft.trim() === '');
+      });
+      if (unused === undefined) {
+        void openSideChatPage(ctx, chats.create(parentId));
+        return;
+      }
+      // Its send forks from the main chat as it is now, so the history it
+      // previews is taken again, as Reset does; with the main chat off screen
+      // the old snapshot stays. A page not rendered yet gets it in its record.
+      const fresh = mainTranscript(parentId) === null ? {} : { inherited: captureInherited(ctx.sessions, parentId) };
+      if (chats.idOfTab(unused.tabId) === undefined) writePage(unused.tabId, { ...readPage(unused.tabId), ...fresh });
+      revealSideChat(ctx, unused.tabId);
+      const id = chats.idOfTab(unused.tabId);
+      if (id !== undefined) chats.patch(id, { ...fresh, focusToken: chats.get(id).focusToken + 1 });
+    }
+
     // ── the overlay ─────────────────────────────────────────────────────────
 
     /** Menu shortcuts while the card is up: the key it answers and the chip that shows it. */
@@ -1318,7 +1359,12 @@ window.__ModuleLoader__.load({
   border-bottom: 0.5px solid var(--dsw-alias-border-l2);
 }
 .dsh-note-whereText { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The one-item card is narrow: there the band sets the width and shows the line whole. */
+.dsh-note-where-full { width: auto; }
 .dsh-note-menu { display: flex; align-items: center; gap: 10px; padding: 4px 10px; }
+/* Its entry on the left, the side chat it reaches on the right, in grey. */
+.dsh-note-menu-spread { justify-content: space-between; gap: 16px; }
+.dsh-note-dest { font-size: 11px; white-space: nowrap; color: var(--dsw-alias-label-tertiary); }
 /* The notice reads as a short paragraph, its answers right-aligned under a hairline. */
 .dsh-note-notice { max-width: 300px; padding: 8px 10px; white-space: normal; }
 .dsh-note-noticeActions { justify-content: flex-end; border-top: 0.5px solid var(--dsw-alias-border-l2); }
@@ -1490,10 +1536,6 @@ window.__ModuleLoader__.load({
       const host = document.createElement('div');
       host.setAttribute(OURS, '');
       document.body.append(host);
-      const style = document.createElement('style');
-      style.dataset.plugin = 'dsh-annotate-sidechat';
-      style.textContent = CSS;
-      document.head.append(style);
       const reactRoot = createRoot(host);
 
       /**
@@ -1575,7 +1617,7 @@ window.__ModuleLoader__.load({
           // and the composer takes the focus once the panel is up. A chat that
           // takes too long to load gets the menu back with an error, rather
           // than the quote vanishing.
-          revealSideChat(ctx, chats, target);
+          revealSideChat(ctx, chats.tabOfId(target.id));
           if (!(await writeDraft(ctx, target.childId, text, 25))) {
             store.set({ pending: selection, error: t('sideChat.quoteFailed') });
           }
@@ -1584,7 +1626,7 @@ window.__ModuleLoader__.load({
         if (target !== undefined) {
           // The open page is still pending; the bumped token asks it to take the
           // focus once it has re-rendered with the quote.
-          revealSideChat(ctx, chats, target);
+          revealSideChat(ctx, chats.tabOfId(target.id));
           chats.patch(target.id, {
             draft: appendDraft(target.draft, text),
             error: '',
@@ -1664,6 +1706,7 @@ window.__ModuleLoader__.load({
         toMain: (selection) => { void toMain(selection); },
         toSide: (selection) => { void toSide(selection); },
         toChat: (selection) => { void toChat(selection); },
+        sideIndex: (childId) => chats.ofChild(childId).index,
         toNewSide: (selection) => { void toNewSide(selection); },
         cancel: cancel,
       }));
@@ -1684,7 +1727,6 @@ window.__ModuleLoader__.load({
         if (debounce !== undefined) clearTimeout(debounce);
         setTimeout(() => { reactRoot.unmount(); });   // same-frame unmount warns in React
         host.remove();
-        style.remove();
       };
     }
 
@@ -1726,13 +1768,17 @@ window.__ModuleLoader__.load({
             entry('new', t('action.toNewSide'), true, () => props.toNewSide(selection))));
       }
       const where = whereLabel(selection, t);
+      const inSide = selection.side !== '';
+      const index = inSide ? props.sideIndex(selection.side) : 0;
       return h('div', { className: 'dsh-note-card', ref: cardRef, [OURS]: '' },
-        // The band never widens the card; cut short, it shows in full on hover.
-        h('div', { className: 'dsh-note-where', title: where },
+        // The band never widens the two-item card; cut short, it shows in full
+        // on hover. The one-item card shows it whole.
+        h('div', { className: inSide ? 'dsh-note-where dsh-note-where-full' : 'dsh-note-where', title: where },
           icon('quote'), h('span', { className: 'dsh-note-whereText' }, where)),
-        selection.side !== ''
-          ? h('div', { className: 'dsh-note-menu' },
-              entry('chat', t('action.toChat'), true, () => props.toChat(selection)))
+        inSide
+          ? h('div', { className: 'dsh-note-menu dsh-note-menu-spread' },
+              entry('chat', t('action.toChat'), true, () => props.toChat(selection)),
+              index > 0 ? h('span', { className: 'dsh-note-dest' }, t('sideChat.chip', { index: index })) : null)
           : h('div', { className: 'dsh-note-menu' },
               entry('main', t('action.toMain'), false, () => props.toMain(selection)),
               h('span', { className: 'dsh-note-sep' }),
@@ -2030,6 +2076,15 @@ window.__ModuleLoader__.load({
       return h('span', null, props.t('sideChat.chip', { index: index }));
     }
 
+    /** `New side chat` in the main chat header, leftmost of its right-aligned utilities. */
+    function NewSideChatButton(props) {
+      return h('button', {
+        className: 'dsh-note-tool', type: 'button',
+        title: props.t('header.newSideChatHint'),
+        onClick: () => props.openSideChat(),
+      }, icon('plus'), props.t('header.newSideChat'));
+    }
+
     /** The embedded conversation's one view, fixed to Chat. Module-level, so the
      *  factory keeps the same component across renders instead of remounting it. */
     function ChatView(viewProps) {
@@ -2071,6 +2126,7 @@ window.__ModuleLoader__.load({
         menuKey: menuKey,
         childGone: childGone,
         closeGoneSideChats: closeGoneSideChats,
+        openUnusedSideChat: openUnusedSideChat,
         Overlay: Overlay,
         selectionText: selectionText,
         capture: capture,
@@ -2082,6 +2138,15 @@ window.__ModuleLoader__.load({
         const t = ctx.locale.bind(NS);
         const chats = createSideChats(ctx);
         ctx.effect(() => () => chats.dropAll(), 'dsh-annotate-sidechat: side chat references');
+        // One stylesheet for the menu, the page and the header button, up before
+        // any of them renders.
+        ctx.effect(() => {
+          const style = document.createElement('style');
+          style.dataset.plugin = 'dsh-annotate-sidechat';
+          style.textContent = CSS;
+          document.head.append(style);
+          return () => style.remove();
+        }, 'dsh-annotate-sidechat: styles');
 
         // Side chats archived or deleted elsewhere are cleaned up whenever either
         // list changes and whenever a chat comes on screen, where its pages can close.
@@ -2192,7 +2257,16 @@ window.__ModuleLoader__.load({
             name: CONVERSATION_SLOT,
             locale: NS,
           }, SideChatPanel));
-          return () => { disposeChat(); disposeTitle(); disposeBody(); disposeClose(); disposeType(); };
+          // The header only exists in the main column, so its session is the main chat.
+          const disposeHeader = ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+            name: 'conversation.session.header.utilities',
+            id: 'annotate-sidechat-new',
+            // Left of the shipped utilities (open-in-app -10, schedule -5, log 0).
+            order: -100,
+            locale: NS,
+            inject: (sessionId) => ({ openSideChat: () => openUnusedSideChat(ctx, chats, sessionId) }),
+          }, NewSideChatButton));
+          return () => { disposeHeader(); disposeChat(); disposeTitle(); disposeBody(); disposeClose(); disposeType(); };
         }), 'dsh-annotate-sidechat: side chat tab');
       },
     };

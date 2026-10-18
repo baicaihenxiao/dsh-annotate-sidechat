@@ -202,6 +202,7 @@ const menuOf = (pending, sent) => Overlay({
   toMain: (selection) => sent.push(['main', selection]),
   toSide: (selection) => sent.push(['side', selection]),
   toChat: (selection) => sent.push(['chat', selection]),
+  sideIndex: (childId) => (childId === 'child-9' ? 3 : 0),
 });
 const buttonsOf = (tree) => find(tree, (node) => String(node.props.className).split(' ').includes('dsh-note-menu')).children
   .filter((node) => node !== null && node !== undefined && node.type === 'button');
@@ -213,6 +214,19 @@ assert.deepEqual(inSide.map((button) => button.children[0].children[0]), ['↵']
 inSide[0].props.onClick();
 assert.equal(sentTo[0][0], 'chat', 'Send to chat sends the quote to that chat');
 assert.equal(sentTo[0][1].side, 'child-9', 'with the side chat it was selected in');
+{
+  const sideMenu = menuOf({ text: 'x', rect, side: 'child-9', turn: 5, block: 'paragraph 2' }, []);
+  const dest = find(sideMenu, (node) => node.props.className === 'dsh-note-dest');
+  assert.equal(dest.children[0], 'sideChat.chip', 'the row names the side chat it reaches, in grey');
+  assert.ok(find(sideMenu, (node) => node.props.className === 'dsh-note-where dsh-note-where-full') !== undefined,
+    'and its location line shows whole');
+  const unnamed = menuOf({ text: 'x', rect, side: 'child-0' }, []);
+  assert.equal(find(unnamed, (node) => node.props.className === 'dsh-note-dest'), undefined,
+    'a child no page holds is not named');
+  assert.match(source, /\.dsh-note-where-full \{ width: auto; \}/, 'the one-item card is as wide as its location');
+  assert.match(source, /\.dsh-note-menu \{[^}]*\}\n[^\n]*\n\.dsh-note-menu-spread \{ justify-content: space-between; gap: 16px;/,
+    'with the name at the row\'s right end, its gap after the base rule so it applies');
+}
 const mainMenu = menuOf({ text: 'x', rect, side: '', turn: 3, block: 'paragraph 2' }, []);
 assert.deepEqual(buttonsOf(mainMenu).map((button) => button.children[1]),
   ['action.toMain', 'action.toSide'], 'the main chat keeps its two items');
@@ -392,6 +406,7 @@ if (slotsModule === undefined) {
     core.register({ name: 'root', children: {
       'sidebar.right.pane.tab': { kind: 'keyed', scope: 'session' },
       'sidebar.right.pane.tab.title': { kind: 'keyed', scope: 'session' },
+      'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
     } }, () => null);
     for (const [options, component] of order) {
       assert.doesNotThrow(() => core.register(options, component), `registering ${options.name} beside ui-subagent`);
@@ -410,6 +425,63 @@ assert.equal(typeof injected.sendSideChat, 'function', 'the body can send the pe
 assert.equal(typeof injected.newSideChat, 'function', 'the body can open another side chat');
 assert.equal(typeof injected.resetSideChat, 'function', 'the body can reset its side chat');
 assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane session');
+
+// ── the header's New side chat: go to an unused page, else open one ────────
+{
+  const header = slots.find((entry) => entry.options.name === 'conversation.session.header.utilities');
+  assert.ok(header !== undefined, 'the header button is registered');
+  assert.ok(header.options.order < -10, 'left of the shipped utilities');
+  const chats = injected.chats;
+  const opened = [];
+  const focused = [];
+  let open = [];
+  const sidebar = {
+    openTab: (kind, options) => { opened.push(options.params); },
+    openTabs: { getSnapshot: () => open },
+    isExpanded: () => true,
+    toggleExpanded: () => {},
+    focus: (tabId) => { focused.push(tabId); },
+  };
+  const headerCtx = { ...ctx, get: (name) => (name === 'sidebarRight' ? sidebar : undefined) };
+  const go = (parentId) => plugin.__test.openUnusedSideChat(headerCtx, chats, parentId);
+  const page = (tabId, sessionId, patch) => {
+    const entry = chats.create(sessionId);
+    chats.bindTab(tabId, entry.id);
+    chats.patch(entry.id, patch);
+    open.push({ sessionId, tabId, kind: 'annotate-sidechat-note', contentId: '' });
+    return entry.id;
+  };
+  page('tab-sent', 'parent-h', { childId: 'child-h' });
+  page('tab-typed', 'parent-h', { draft: 'typed' });
+  page('tab-other', 'parent-other', {});
+  go('parent-h');
+  assert.equal(opened.length, 1, 'no unused page of this chat: a new one opens');
+  assert.equal(opened[0].parentId, 'parent-h', 'for this chat');
+  assert.deepEqual(focused, [], 'and no other page is taken for it');
+  const fresh = page('tab-fresh', 'parent-h', {});
+  const token = chats.get(fresh).focusToken;
+  // The main chat has moved on to two turns since that page was created.
+  const rows = [1, 2].flatMap((turn) => ['user', 'assistant-step'].map((kind) => Object.assign(
+    new FakeElement({ 'data-chat-flow-key': `${kind}-${turn}`, 'data-chat-flow-kind': kind, 'data-chat-turn': String(turn) }),
+    { parentElement: { className: 'column' }, outerHTML: `<div>${kind} ${turn}</div>` })));
+  const mainChat = Object.assign(new FakeElement(), { dataset: {}, querySelector: () => rows[0], querySelectorAll: () => rows });
+  document.querySelectorAll = (selector) => (selector === '[data-conversation-session]' ? [mainChat] : []);
+  mainChat.dataset.conversationSession = 'parent-h';
+  go('parent-h');
+  assert.equal(opened.length, 1, 'an unused page is reused, not opened again');
+  assert.deepEqual(focused, ['tab-fresh'], 'it is brought into view');
+  assert.equal(chats.get(fresh).focusToken, token + 1, 'and its composer asked for the keyboard');
+  assert.equal(chats.get(fresh).inherited.turns, 2, 'and it previews the main chat as it is now');
+  open = [{ sessionId: 'parent-r', tabId: 'tab-reloaded', kind: 'annotate-sidechat-note', contentId: '' }];
+  storage.set('dsh-annotate-sidechat:page:tab-reloaded', JSON.stringify({ id: 'note-r', parentId: 'parent-r', index: 1 }));
+  mainChat.dataset.conversationSession = 'parent-r';
+  go('parent-r');
+  delete document.querySelectorAll;
+  assert.deepEqual(focused.at(-1), 'tab-reloaded', 'a page not rendered since a reload is read from its record');
+  const record = JSON.parse(storage.get('dsh-annotate-sidechat:page:tab-reloaded'));
+  assert.equal(record.id, 'note-r', 'its record keeps its identity');
+  assert.equal(record.inherited.turns, 2, 'and takes the main chat as it is now, for when it renders');
+}
 
 // ── Reset takes the main chat's history again ──────────────────────────────
 // The next send forks from the main chat's latest completed turn, so a reset

@@ -143,7 +143,9 @@ created with and the reply, and the next quote waiting in its composer.
    error instead of disappearing.
 8. **Quote inside a side chat.** Selecting text in a reply of a side chat that
    has been sent opens a one-item menu, `Send to chat` (key `Enter`), under
-   the same location line, which appends the located quote to that side
+   the same location line — shown whole here, since this card is sized by it —
+   with the side chat it reaches named in grey at the row's right end
+   (`sidechat-3`). It appends the located quote to that side
    chat's own composer — the same format, blank lines and focus as the other
    two. A page that has not been sent yet, and any
    other sidebar chat, offers no menu.
@@ -154,6 +156,12 @@ created with and the reply, and the next quote waiting in its composer.
    nothing of the gone chat), its record is forgotten, and Send to side chat
    no longer aims at it. Reset's own archive is not mistaken for this; that
    page starts over as before.
+10. **`New side chat` in the main chat header.** The header's right-hand
+    controls start with a `New side chat` button (plus icon). It opens the
+    right sidebar on a side-chat page of the chat on screen with its composer
+    focused: a page of this chat that is open but unused — never sent, nothing
+    typed — is brought into view instead of opening another, and only
+    without one does a new page open.
 
 The side-chat panel is not a reimplementation: once the child exists, the panel
 declares its own `annotateSidechat.conversation` child slot, wraps it in the
@@ -295,6 +303,7 @@ Points worth knowing:
 | `ctx.sessions.list` | Numbering side chats and reading the main chat's title |
 | `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` / `isExpanded` / `focus` / `registerCloseHandler` | Opening a page per side chat (retried while the surface mounts), rewriting its params in place, finding the open one, bringing it into view, and forgetting a closed page |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
+| `conversation.session.header.utilities` (`order: -100`) | The header's `New side chat`, left of the shipped utilities |
 | `annotateSidechat.conversation` (own child slot) + `conversation.content` factory | Rendering the shipped conversation inside the panel |
 | `ctx.sidebarRight.openTabs` + `close` | Dropping the per-tab records of pages no saved layout holds, and closing the on-screen chat's pages of side chats archived or deleted elsewhere |
 | `ctx.get('workspaces').list` (`archivedSessionIds`) + `ctx.sessions.list` (`ids`, `phase`) | Telling a side chat archived or deleted elsewhere — only once each list is ready |
@@ -332,7 +341,10 @@ a page holding its side chat until it closes, and the cleanup of side chats
 archived or deleted elsewhere (archived or missing only once a list is ready,
 the on-screen chat's pages closing — from memory or their record — another
 chat's page letting its child go, Reset left alone, and a gone page rendering
-nothing of its chat).
+nothing of its chat), and the header's `New side chat` (left of the shipped
+utilities; it goes to an unused page of the chat on screen — one in hand or
+one read back from its record after a reload — and opens a new page only
+when there is none).
 
 The check also replays every slot registration this plugin makes against the
 host's real `SlotCore` (`@deepseek-ai/dsh-client-ui-slots`), beside the
