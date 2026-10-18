@@ -55,7 +55,7 @@ window.__ModuleLoader__.load({
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': '隐藏继承内容',
       'sideChat.inheritEmpty': '主对话还没有已完成的内容',
-      'sideChat.inheritMore': '更早的 {messages} 条未显示',
+      'sideChat.inheritMore': '较长的消息未在此预览',
       'sideChat.inherited': '继承 {turns} 轮',
       'sideChat.inheritedOne': '继承 {turns} 轮',
       'sideChat.new': '新建',
@@ -95,7 +95,7 @@ window.__ModuleLoader__.load({
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': 'Hide inherited',
       'sideChat.inheritEmpty': 'The main chat has nothing completed yet',
-      'sideChat.inheritMore': '{messages} earlier messages not shown',
+      'sideChat.inheritMore': 'Long messages not previewed here',
       'sideChat.inherited': '{turns} turns inherited',
       'sideChat.inheritedOne': '{turns} turn inherited',
       'sideChat.new': 'New',
@@ -1396,6 +1396,14 @@ window.__ModuleLoader__.load({
 .dsh-note-transcript > div { min-width: 0; }
 .dsh-note-transcript button, .dsh-note-transcript [role="button"] { display: none; }
 .dsh-note-empty { padding: 8px 0; font-size: 12px; color: var(--dsw-alias-label-tertiary); }
+/* After the last previewed message: a centred, dashed rule saying long ones were left out. */
+.dsh-note-skipped {
+  display: flex; align-items: center; gap: 8px; padding: 12px 0 4px;
+  font-size: 12px; white-space: nowrap; color: var(--dsw-alias-label-tertiary);
+}
+.dsh-note-skipped::before, .dsh-note-skipped::after {
+  content: ''; flex: 1 1 0; border-top: 1px dashed var(--dsw-alias-border-l3);
+}
 /* The composer card, its type and its send button copy the host composer
    (InputBar.module.css): same panel radius, input fill and elevation, the same
    content font size, and the same 34px round send button. */
@@ -1936,14 +1944,16 @@ window.__ModuleLoader__.load({
           origin === null || origin.html === ''
             ? h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritEmpty'))
             : [
-                origin.hidden === 0
-                  ? null
-                  : h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritMore', { messages: origin.hidden })),
                 h('div', {
                   key: 'rows',
                   className: origin.columnClass || '',
                   dangerouslySetInnerHTML: { __html: shownHtml },
                 }),
+                // Long messages are left out wherever they sit, not only the
+                // oldest, so the note closes the preview rather than heading it.
+                origin.hidden === 0
+                  ? null
+                  : h('div', { key: 'skipped', className: 'dsh-note-skipped' }, t('sideChat.inheritMore')),
               ],
         ),
       );

@@ -98,7 +98,12 @@ created with and the reply, and the next quote waiting in its composer.
    are dropped, and so are the host's turn and anchor markers, which must stay
    unique to the live transcript. The area opens at the end of that history, the
    way a sent chat's transcript does, so the newest turns sit right above the
-   composer.
+   composer. The preview is kept small, since it is saved with the page: a
+   message whose markup passes 4 KB is left out (most assistant replies do), and
+   so is everything older once 24 KB is used, newest first. When anything was
+   left out, a centred dashed rule after the last previewed message says
+   `Long messages not previewed here`; the side chat shows every message once
+   it is sent, because it then renders the forked chat itself.
 6. **The chat is created on send, not on click.** Until a composer is sent, the
    page is a plain editable draft and **no chat exists** in the session list.
    Sending forks the main chat (`sessions.fork` with no explicit boundary, so the

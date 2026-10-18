@@ -611,6 +611,18 @@ assert.equal(injected.chats.get('note-kept').draft, 'a draft kept across the rel
 assert.equal(injected.chats.get('note-kept').index, 7, 'and its number');
 assert.ok(JSON.stringify(reloaded).includes('kept row'), 'the restored page renders the history it snapshotted');
 
+// Long messages are left out wherever they sit, so the note on them closes the
+// preview — after the last previewed message, not above the first.
+const skippedTree = panelOf({
+  id: 'note-skipped', parentId: 'parent-skipped', index: 1,
+  inherited: { columnClass: '', html: '<div>short row</div>', messages: 3, turns: 2, hidden: 2 },
+}, 'parent-skipped', 'tab-skipped');
+const previewRows = find(skippedTree, (node) => node.props.className === 'dsh-note-transcriptRows').children.flat().filter(Boolean);
+assert.equal(previewRows[previewRows.length - 1].props.className, 'dsh-note-skipped',
+  'the left-out note follows the last previewed message');
+assert.equal(previewRows[previewRows.length - 1].children[0], 'sideChat.inheritMore', 'and says long messages were left out');
+assert.match(source, /\.dsh-note-skipped::before, \.dsh-note-skipped::after \{[^}]*dashed/, 'as a centred, dashed rule');
+
 storage.set('dsh-annotate-sidechat:page:tab-child', JSON.stringify({
   at: Date.now(),
   id: 'note-child',
