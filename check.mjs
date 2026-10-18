@@ -411,6 +411,37 @@ assert.equal(typeof injected.newSideChat, 'function', 'the body can open another
 assert.equal(typeof injected.resetSideChat, 'function', 'the body can reset its side chat');
 assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane session');
 
+// ── Reset takes the main chat's history again ──────────────────────────────
+// The next send forks from the main chat's latest completed turn, so a reset
+// page must not keep showing the history it captured when it was created.
+{
+  const chats = injected.chats;
+  const column = { className: 'column' };
+  const row = (kind, turn) => Object.assign(
+    new FakeElement({ 'data-chat-flow-key': `${kind}-${turn}`, 'data-chat-flow-kind': kind, 'data-chat-turn': String(turn) }),
+    { parentElement: column, outerHTML: `<div>${kind} ${turn}</div>` },
+  );
+  const rows = [1, 2, 3].flatMap((turn) => [row('user', turn), row('assistant-step', turn)]);
+  const mainChat = Object.assign(new FakeElement(), {
+    dataset: { conversationSession: 'parent-reset' },
+    querySelector: () => rows[0],
+    querySelectorAll: () => rows,
+  });
+  const twoTurns = { columnClass: 'column', html: '<div>old</div>', messages: 4, turns: 2, hidden: 0 };
+  const page = chats.create('parent-reset');
+  chats.patch(page.id, { inherited: twoTurns, draft: 'typed' });
+  document.querySelectorAll = (selector) => (selector === '[data-conversation-session]' ? [mainChat] : []);
+  await injected.resetSideChat(page.id);
+  assert.equal(chats.get(page.id).inherited.turns, 3, 'a reset page shows the turn the main chat added since');
+  assert.ok(chats.get(page.id).inherited.html.includes('user 3'), 'with that turn in its history');
+  assert.equal(chats.get(page.id).draft, '', 'and an empty composer');
+  chats.patch(page.id, { inherited: twoTurns });
+  document.querySelectorAll = () => [];
+  await injected.resetSideChat(page.id);
+  assert.equal(chats.get(page.id).inherited, twoTurns, 'with the main chat off screen the old history stays');
+  delete document.querySelectorAll;
+}
+
 // ── a page holds its side chat until it closes, not while it is mounted ────
 // A body unmounts on every session switch. If the side chat's last reference
 // went with it while the user had that chat open in the main column, coming

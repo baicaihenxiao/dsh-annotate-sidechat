@@ -1212,9 +1212,14 @@ window.__ModuleLoader__.load({
         }
       }
       // A fresh number: the archived chat keeps the old one, so titles stay
-      // distinct, and the reset page goes back to a plain composer.
+      // distinct, and the reset page goes back to a plain composer. Its next
+      // send forks from the main chat's latest completed turn, so the history
+      // shown above the composer is taken again from the main chat as it is
+      // now; with the main chat off screen there is nothing to read, and the
+      // old snapshot stays.
       chats.patch(id, {
         index: nextSideChatIndex(ctx, chats, entry.parentId),
+        inherited: mainTranscript(entry.parentId) === null ? entry.inherited : captureInherited(ctx.sessions, entry.parentId),
         childId: null,
         boundaryTurn: null,
         first: '',

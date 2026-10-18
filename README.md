@@ -119,7 +119,7 @@ created with and the reply, and the next quote waiting in its composer.
 
    | Button | What it does |
    |---|---|
-   | `Reset` (refresh icon) | Archives the current chat and returns this page to an empty composer; the next send forks a fresh chat. Outlined, its label in the theme's caution tone (amber), with a tooltip |
+   | `Reset` (refresh icon) | Archives the current chat and returns this page to an empty composer; the next send forks a fresh chat, so the history above the composer is taken again from the main chat as it is now (turns it gained since included). Outlined, its label in the theme's caution tone (amber), with a tooltip |
    | `New` (plus icon) | Opens another side-chat page for the same main chat (several can be open at once). Outlined in the neutral label colour, so the additive action reads apart from the cautionary one at a glance |
    | `N turns inherited` (chevron) | Shows or hides the fork's inherited turns; plain text pinned to the right, tooltip names the action |
 
