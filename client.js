@@ -1953,7 +1953,9 @@ window.__ModuleLoader__.load({
       // chat's own scroll container, and a composer card below them.
       const transcript = h('div', { className: 'dsh-note-transcript' },
         h('div', { className: 'dsh-note-transcriptRows', ref: rowsRef },
-          origin === null || origin.html === ''
+          // "Nothing completed yet" only when there is nothing: messages that
+          // were all too long to preview still leave their notes below.
+          origin === null || (origin.html === '' && !(origin.messages > 0))
             ? h('div', { className: 'dsh-note-empty' }, t('sideChat.inheritEmpty'))
             : [
                 // The main chat had not paged its oldest turns in: those really

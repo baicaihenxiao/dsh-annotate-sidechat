@@ -647,6 +647,16 @@ assert.equal(earlierRows[0].children[0], 'sideChat.inheritEarlier', 'and says th
 assert.equal(find(earlierTree, (node) => node.props.className === 'dsh-note-toolNote').children[0],
   'sideChat.inherited{"turns":8}', 'while the toolbar counts all 8 turns');
 
+// Every loaded message too long to preview is not "nothing completed yet".
+const allLongTree = panelOf({
+  id: 'note-all-long', parentId: 'parent-all-long', index: 1,
+  inherited: { columnClass: '', html: '', messages: 2, turns: 1, earliest: 1, hidden: 2 },
+}, 'parent-all-long', 'tab-all-long');
+const allLongRows = find(allLongTree, (node) => node.props.className === 'dsh-note-transcriptRows').children.flat().filter(Boolean);
+assert.equal(allLongRows.find((node) => node.props.className === 'dsh-note-empty'), undefined,
+  'a preview whose messages were all too long does not claim the main chat has nothing');
+assert.equal(allLongRows[allLongRows.length - 1].props.className, 'dsh-note-skipped', 'it says they were too long instead');
+
 storage.set('dsh-annotate-sidechat:page:tab-child', JSON.stringify({
   at: Date.now(),
   id: 'note-child',
