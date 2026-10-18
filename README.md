@@ -17,9 +17,10 @@ select an assistant reply  →  two options: Send to main chat / Send to side ch
 select a reply inside a sent side chat  →  Send to chat: the quote goes to that side chat's composer
 ```
 
-On the left, the main chat with the quote menu open on a selected word. On the
-right, side chat `sidechat-1`: its two inherited turns shown, the quote it was
-created with and the reply, and the next quote waiting in its composer.
+On the left, the main chat, `New side chat` in its header, with the quote menu
+open on a selected word. On the right, side chat `sidechat-2` before it is sent:
+the two main-chat turns it will inherit, and a quote plus a note waiting in its
+composer.
 
 ![The main chat with the quote menu open, and a side chat in the right sidebar](docs/sidechat.webp)
 
@@ -28,10 +29,9 @@ created with and the reply, and the next quote waiting in its composer.
 > browser on DeepSeek Harness `0.2.0-rc.2` and `0.2.1-rc.2`: the quote menu,
 > sending a side chat, the fork-point notice, Reset and a reload; the 1.2.1 fold
 > fix and the 1.3.0 menu, keys and toolbar on `0.2.1-rc.2`, in light and dark;
-> the 1.3.1 preview fixes on `0.2.1-rc.2`, by simulation on the page. The 1.4.0
-> `New side chat` header button and the side chat's menu naming `sidechat-N`,
-> Send to chat inside a side chat and the cleanup of side chats archived
-> elsewhere have not been tried in a browser yet.** See [Checks](#checks).
+> the 1.3.1 preview fixes on `0.2.1-rc.2`, by simulation on the page. Send to
+> chat inside a side chat, the cleanup of side chats archived elsewhere and the
+> 1.4.0 changes have not been tried in a browser yet.** See [Checks](#checks).
 
 ## What it does
 
@@ -144,9 +144,8 @@ created with and the reply, and the next quote waiting in its composer.
    error instead of disappearing.
 8. **Quote inside a side chat.** Selecting text in a reply of a side chat that
    has been sent opens a one-item menu, `Send to chat` (key `Enter`), under
-   the same location line — shown whole here, since this card is sized by it —
-   with the side chat it reaches named in grey at the row's right end
-   (`sidechat-3`). It appends the located quote to that side
+   the same location line (shown whole), naming that side chat in grey on the
+   right (`sidechat-3`). It appends the located quote to that side
    chat's own composer — the same format, blank lines and focus as the other
    two. A page that has not been sent yet, and any
    other sidebar chat, offers no menu.
@@ -157,12 +156,9 @@ created with and the reply, and the next quote waiting in its composer.
    nothing of the gone chat), its record is forgotten, and Send to side chat
    no longer aims at it. Reset's own archive is not mistaken for this; that
    page starts over as before.
-10. **`New side chat` in the main chat header.** The header's right-hand
-    controls start with a `New side chat` button (plus icon). It opens the
-    right sidebar on a side-chat page of the chat on screen with its composer
-    focused: a page of this chat that is open but unused — never sent, nothing
-    typed — is brought into view instead of opening another, and only
-    without one does a new page open.
+10. **`New side chat` in the main chat header**, left of its right-hand
+    controls, opens a side-chat page with its composer focused — this chat's
+    open but unused page (never sent, nothing typed) if there is one.
 
 The side-chat panel is not a reimplementation: once the child exists, the panel
 declares its own `annotateSidechat.conversation` child slot, wraps it in the
@@ -304,7 +300,7 @@ Points worth knowing:
 | `ctx.sessions.list` | Numbering side chats and reading the main chat's title |
 | `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` / `isExpanded` / `focus` / `registerCloseHandler` | Opening a page per side chat (retried while the surface mounts), rewriting its params in place, finding the open one, bringing it into view, and forgetting a closed page |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
-| `conversation.session.header.utilities` (`order: -100`) | The header's `New side chat`, left of the shipped utilities |
+| `conversation.session.header.utilities` | The header's `New side chat` |
 | `annotateSidechat.conversation` (own child slot) + `conversation.content` factory | Rendering the shipped conversation inside the panel |
 | `ctx.sidebarRight.openTabs` + `close` | Dropping the per-tab records of pages no saved layout holds, and closing the on-screen chat's pages of side chats archived or deleted elsewhere |
 | `ctx.get('workspaces').list` (`archivedSessionIds`) + `ctx.sessions.list` (`ids`, `phase`) | Telling a side chat archived or deleted elsewhere — only once each list is ready |
@@ -342,10 +338,8 @@ a page holding its side chat until it closes, and the cleanup of side chats
 archived or deleted elsewhere (archived or missing only once a list is ready,
 the on-screen chat's pages closing — from memory or their record — another
 chat's page letting its child go, Reset left alone, and a gone page rendering
-nothing of its chat), and the header's `New side chat` (left of the shipped
-utilities; it goes to an unused page of the chat on screen — one in hand or
-one read back from its record after a reload — and opens a new page only
-when there is none).
+nothing of its chat), and the header's `New side chat` reusing an unused page,
+also one known only from its record.
 
 The check also replays every slot registration this plugin makes against the
 host's real `SlotCore` (`@deepseek-ai/dsh-client-ui-slots`), beside the
@@ -423,14 +417,8 @@ renumbered as a later turn), `Long messages not previewed here` after the last
 message, and a preview whose messages were all too long. A really paged main
 chat and a sent side chat's toggle count were checked headlessly only.
 
-1.4.0 was checked headlessly only: the header's `New side chat` opening a page
-or going to an unused one (one in hand, and one read back from its record) and
-taking the main chat's history again, and the one-item menu's whole location
-line and grey `sidechat-N`. The header slot it uses,
-`conversation.session.header.utilities`, was confirmed declared the same way (a
-session-scoped list) in the published `dsh-client-ui-conversation` of both
-`0.2.0-rc.2` and `0.2.1-rc.2`, and the slot replay ran against `0.2.1-rc.2`'s
-`SlotCore`.
+1.4.0 was checked headlessly only; its header slot is declared the same way in
+`0.2.0-rc.2` and `0.2.1-rc.2`.
 
 ## License
 
