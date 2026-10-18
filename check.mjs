@@ -208,12 +208,52 @@ const buttonsOf = (tree) => find(tree, (node) => String(node.props.className).sp
 const rect = { left: 0, bottom: 0 };
 const sentTo = [];
 const inSide = buttonsOf(menuOf({ text: 'x', rect, side: 'child-9' }, sentTo));
-assert.deepEqual(inSide.map((button) => button.children[0]), ['action.toChat'], 'a side chat offers Send to chat alone');
+assert.deepEqual(inSide.map((button) => button.children[1]), ['action.toChat'], 'a side chat offers Send to chat alone');
+assert.deepEqual(inSide.map((button) => button.children[0].children[0]), ['↵'], 'led by the key that sends it');
 inSide[0].props.onClick();
 assert.equal(sentTo[0][0], 'chat', 'Send to chat sends the quote to that chat');
 assert.equal(sentTo[0][1].side, 'child-9', 'with the side chat it was selected in');
-assert.deepEqual(buttonsOf(menuOf({ text: 'x', rect, side: '' }, [])).map((button) => button.children[0]),
+const mainMenu = menuOf({ text: 'x', rect, side: '', turn: 3, block: 'paragraph 2' }, []);
+assert.deepEqual(buttonsOf(mainMenu).map((button) => button.children[1]),
   ['action.toMain', 'action.toSide'], 'the main chat keeps its two items');
+assert.deepEqual(buttonsOf(mainMenu).map((button) => button.children[0].children[0]), ['M', 'S'],
+  'each led by its own key chip');
+const band = find(mainMenu, (node) => node.props.className === 'dsh-note-where');
+assert.equal(band.children[1].children[0], 'where.turn · where.paragraph · where.chars',
+  'the card names where the selection sits');
+assert.equal(band.props.title, band.children[1].children[0], 'and hovering it shows that line in full');
+assert.match(source, /\.dsh-note-where \{[^}]*width: 0; min-width: 100%;/, 'the band never widens the card');
+assert.match(source, /\.dsh-note-whereText \{[^}]*text-overflow: ellipsis;/, 'it ends in an ellipsis instead');
+
+// ── the menu's location line and its keys ──────────────────────────────────
+const { whereLabel, menuKey } = plugin.__test;
+const tWhere = (key, extra) => (extra === undefined ? key : `${key}${JSON.stringify(extra)}`);
+assert.equal(whereLabel({ text: '缓存命中', turn: 3, block: 'paragraph 2' }, tWhere),
+  'where.turn{"turn":3} · where.paragraph{"n":2} · where.chars{"chars":4}', 'turn, block and length, in that order');
+assert.equal(whereLabel({ text: 'ab', part: 'reasoning', turn: 4, block: 'code block 1' }, tWhere),
+  'where.turn{"turn":4} · where.reasoning · where.code block{"n":1} · where.chars{"chars":2}',
+  'the thinking block and a multi-word block kind are named');
+assert.equal(whereLabel({ text: 'x' }, tWhere), 'where.chars{"chars":1}', 'an unplaced selection still gives its length');
+const mainState = { pending: { side: '' } };
+assert.equal(menuKey(mainState, 'm'), 'main', 'M sends to the main chat');
+assert.equal(menuKey(mainState, 'S'), 'side', 'S sends to a side chat, either case');
+assert.equal(menuKey(mainState, 'Enter'), undefined, 'Enter picks nothing when two entries compete');
+assert.equal(menuKey(mainState, 'Escape'), 'cancel', 'Escape dismisses');
+assert.equal(menuKey({ pending: { side: 'child-9' } }, 'Enter'), 'chat', 'Enter sends inside a side chat');
+assert.equal(menuKey({ pending: { side: 'child-9' } }, 'm'), undefined, 'and M is not offered there');
+assert.equal(menuKey({ pending: { side: '' }, notice: {} }, 'Enter'), 'new', 'Enter answers the notice yes');
+assert.equal(menuKey({ pending: { side: '' }, notice: {} }, 's'), undefined, 'the notice ignores the menu keys');
+assert.equal(menuKey({ pending: null }, 'm'), undefined, 'no card, no keys');
+assert.equal(menuKey(mainState, 'ь', 'KeyM'), 'main', 'a Russian layout\'s M key still sends to the main chat');
+assert.equal(menuKey(mainState, 'ы', 'KeyS'), 'side', 'and its S key to a side chat');
+assert.equal(menuKey(mainState, ',', 'KeyM'), undefined, 'AZERTY\'s comma on the QWERTY M position picks nothing');
+assert.equal(menuKey(mainState, 'm', 'Semicolon'), 'main', 'while AZERTY\'s own M key works by its letter');
+assert.match(source, /event\.key === 'Enter' && target instanceof Element\s*&& target\.closest\('button, a\[href\], \[role="button"\], summary'\) !== null\) return;/,
+  'Enter on a focused button stays that button\'s');
+assert.match(source, /if \(event\.ctrlKey \|\| event\.metaKey \|\| event\.altKey \|\| event\.shiftKey\) return;/,
+  'a chord such as Cmd+C stays the host\'s');
+assert.match(source, /target\.closest\('input, textarea, select'\) !== null \|\| target\.isContentEditable === true\)\) return;/,
+  'typing in a field is never taken');
 
 // ── a quote from a turn the open side chat was forked before ───────────────
 const { staleQuote } = plugin.__test;
@@ -238,7 +278,7 @@ const noticeCard = noticeOf({ text: 'x', rect, side: '', turn: 4 }, { turn: 4, f
 assert.equal(noticeCard.props.role, 'alertdialog', 'the notice is announced as a question');
 assert.ok(find(noticeCard, (node) => node.props.className === 'dsh-note-notice') !== undefined, 'it explains the situation');
 const answers = buttonsOf(noticeCard);
-assert.deepEqual(answers.map((button) => button.children[0]), ['action.cancel', 'action.toNewSide'],
+assert.deepEqual(answers.map((button) => button.children[1]), ['action.cancel', 'action.toNewSide'],
   'it offers Cancel and a new side chat');
 answers[1].props.onClick();
 answers[0].props.onClick();
@@ -495,10 +535,10 @@ const toolButtons = find(tree, (node) => node.type === 'div' && node.props.class
   .children.filter(Boolean);
 assert.deepEqual(toolButtons.map((button) => button.children[1]), ['sideChat.reset', 'sideChat.new'],
   'reset sits left of new');
-assert.deepEqual(toolButtons.map((button) => button.children[0].children[0]), ['↺', '＋'],
-  'each button carries its own glyph');
+assert.deepEqual(toolButtons.map((button) => button.children[0].props['data-icon']), ['refresh', 'plus'],
+  'each button carries its own icon');
 assert.ok(toolButtons[0].props.className.includes('dsh-note-tool-warn'), 'reset carries the caution tone');
-assert.ok(toolButtons[1].props.className.includes('dsh-note-tool-primary'), 'new is the brand-tinted one');
+assert.ok(toolButtons[1].props.className.includes('dsh-note-tool-primary'), 'new carries its own class');
 assert.ok(toolButtons[0].props.title !== toolButtons[1].props.title, 'the two buttons explain themselves differently');
 
 // ── a page opened from the guide mints its own side chat ───────────────────
@@ -564,15 +604,15 @@ for (const dispose of disposers.reverse()) dispose();
 assert.ok(source.includes('[data-sidebar-right-session]'), 'sidebar exclusion uses the host marker');
 assert.ok(!source.includes('[data-sidebar-right],'), 'the bogus un-suffixed sidebar selector is gone');
 
-// Hovering the primary menu entry must not repaint it with the light layer fill.
+// The entry the card leans toward shows its key in the composer's send blue.
 assert.match(
   source,
-  /\.dsh-note-btn-primary:hover\s*\{[^}]*background:\s*var\(--dsw-alias-brand-primary\)/,
-  'the primary hover restates the brand fill',
+  /\.dsh-note-btn-primary \.dsh-note-key\s*\{[^}]*color:\s*var\(--dsw-alias-state-business-primary\)/,
+  'the primary key chip carries the accent',
 );
 assert.match(
   source,
-  /\.dsh-note-tool-warn\s*\{[^}]*color:\s*var\(--dsw-alias-state-warn-primary\)/,
+  /\.dsh-note-tool-warn\s*\{[^}]*color:\s*var\(--dsw-alias-state-warn-label\)/,
   'the reset button is coloured with the warning tone',
 );
 assert.ok(!source.includes('filter: brightness'), 'the primary hover no longer washes toward white');

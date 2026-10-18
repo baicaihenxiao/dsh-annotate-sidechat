@@ -47,16 +47,17 @@ window.__ModuleLoader__.load({
     const zh = {
       'action.cancel': '取消',
       'action.toChat': '发送到此对话',
-      'action.toMain': '发送到主对话',
+      'action.toMain': '主对话',
       'action.toNewSide': '发送到新的侧边对话',
-      'action.toSide': '发送到侧边对话',
+      'action.toSide': '侧边对话',
       'guide.description': '不引用也能直接输入；发送后新建 sidechat- 对话',
       'mainChat.failed': '无法写入主对话的输入框。',
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': '隐藏继承内容',
       'sideChat.inheritEmpty': '主对话还没有已完成的内容',
       'sideChat.inheritMore': '更早的 {messages} 条未显示',
-      'sideChat.inherited': '继承自主对话 {turns} 轮',
+      'sideChat.inherited': '继承 {turns} 轮',
+      'sideChat.inheritedOne': '继承 {turns} 轮',
       'sideChat.new': '新建',
       'sideChat.newHint': '再开一个侧边对话',
       'sideChat.pendingPlaceholder': '输入内容，发送后新建 sidechat- 对话…',
@@ -71,21 +72,32 @@ window.__ModuleLoader__.load({
       'sideChat.gone': '这个侧边对话已在别处归档或删除，本页随即关闭。',
       'sideChat.working': '正在创建侧边对话…',
       'tab.title': '侧边对话',
+      'where.block': '第{n}块',
+      'where.chars': '{chars}字',
+      'where.code block': '第{n}个代码块',
+      'where.heading': '第{n}个标题',
+      'where.list item': '第{n}项',
+      'where.paragraph': '第{n}段',
+      'where.quote': '第{n}处引用',
+      'where.reasoning': '思考',
+      'where.table cell': '第{n}格',
+      'where.turn': '第{turn}轮',
     };
 
     const en = {
       'action.cancel': 'Cancel',
       'action.toChat': 'Send to chat',
-      'action.toMain': 'Send to main chat',
+      'action.toMain': 'Main chat',
       'action.toNewSide': 'Send to a new side chat',
-      'action.toSide': 'Send to side chat',
+      'action.toSide': 'Side chat',
       'guide.description': 'Type directly — no quote needed; sending creates a sidechat- chat',
       'mainChat.failed': 'The main chat composer could not be reached.',
       'sideChat.chip': 'sidechat-{index}',
       'sideChat.hideInherited': 'Hide inherited',
       'sideChat.inheritEmpty': 'The main chat has nothing completed yet',
       'sideChat.inheritMore': '{messages} earlier messages not shown',
-      'sideChat.inherited': '{turns} turns inherited from the main chat',
+      'sideChat.inherited': '{turns} turns inherited',
+      'sideChat.inheritedOne': '{turns} turn inherited',
       'sideChat.new': 'New',
       'sideChat.newHint': 'Open another side chat',
       'sideChat.pendingPlaceholder': 'Type a message; sending creates a sidechat- chat…',
@@ -100,6 +112,16 @@ window.__ModuleLoader__.load({
       'sideChat.gone': 'This side chat was archived or deleted elsewhere; this page closes.',
       'sideChat.working': 'Creating the side chat…',
       'tab.title': 'Side chat',
+      'where.block': 'block {n}',
+      'where.chars': '{chars} chars',
+      'where.code block': 'code {n}',
+      'where.heading': 'heading {n}',
+      'where.list item': 'item {n}',
+      'where.paragraph': 'para {n}',
+      'where.quote': 'quote {n}',
+      'where.reasoning': 'thinking',
+      'where.table cell': 'cell {n}',
+      'where.turn': 'turn {turn}',
     };
 
     // ── host seams ──────────────────────────────────────────────────────────
@@ -398,6 +420,18 @@ window.__ModuleLoader__.load({
     function quoteText(snapshot) {
       const quoted = snapshot.text.split('\n').map((line) => '> ' + line).join('\n');
       return locationLine(snapshot) + '\n' + quoted;
+    }
+
+    /** The menu's own location line, short and in the UI language: `turn 3 · para 2 · 4 chars`, `第3轮 · 第2段 · 4字`. */
+    function whereLabel(snapshot, t) {
+      const at = [];
+      if (typeof snapshot.turn === 'number') at.push(t('where.turn', { turn: snapshot.turn }));
+      if (snapshot.part === 'reasoning') at.push(t('where.reasoning'));
+      // `block` is the quote's English `paragraph 2`; its kind keys the label.
+      const block = typeof snapshot.block === 'string' ? /^(.+) (\d+)$/.exec(snapshot.block) : null;
+      if (block !== null) at.push(t('where.' + block[1], { n: Number(block[2]) }));
+      at.push(t('where.chars', { chars: Array.from(snapshot.text).length }));
+      return at.join(' · ');
     }
 
     /** Whitespace-normalized text, for matching a message inside the transcript. */
@@ -1207,37 +1241,102 @@ window.__ModuleLoader__.load({
 
     // ── the overlay ─────────────────────────────────────────────────────────
 
+    /** Menu shortcuts while the card is up: the key it answers and the chip that shows it. */
+    const MENU_KEYS = {
+      main: { key: 'm', chip: 'M', aria: 'M' },
+      side: { key: 's', chip: 'S', aria: 'S' },
+      chat: { key: 'Enter', chip: '↵', aria: 'Enter' },
+      new: { key: 'Enter', chip: '↵', aria: 'Enter' },
+      cancel: { key: 'Escape', chip: 'Esc', aria: 'Escape' },
+    };
+
+    /**
+     * Which menu entry `key` picks in this card state; Escape always dismisses.
+     * A non-Latin layout types another letter on the M and S keys (`ь`, `ы`),
+     * so such a letter is read by its key position, `code`, instead.
+     */
+    function menuKey(state, key, code) {
+      if (state.pending === null || typeof key !== 'string') return undefined;
+      const offered = state.notice !== undefined ? ['cancel', 'new']
+        : (state.pending.side !== '' ? ['chat', 'cancel'] : ['main', 'side', 'cancel']);
+      const foreign = /^\p{L}$/u.test(key) && !/^[a-z]$/i.test(key) && typeof code === 'string' && /^Key[A-Z]$/.test(code);
+      const pressed = foreign ? code.slice(3).toLowerCase() : (key.length === 1 ? key.toLowerCase() : key);
+      return offered.find((name) => MENU_KEYS[name].key === pressed);
+    }
+
+    /** 24-grid outline icons (Tabler, MIT), drawn in the text colour. */
+    const ICONS = {
+      refresh: 'M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4',
+      plus: 'M12 5v14M5 12h14',
+      chevronRight: 'M9 6l6 6l-6 6',
+      chevronDown: 'M6 9l6 6l6 -6',
+      quote: 'M10 11h-4a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v6c0 2.667 -1.333 4.333 -4 5M19 11h-4a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v6c0 2.667 -1.333 4.333 -4 5',
+    };
+
+    function icon(name) {
+      return h('svg', {
+        className: 'dsh-note-icon', 'data-icon': name, viewBox: '0 0 24 24', width: 14, height: 14, 'aria-hidden': true,
+        fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
+      }, h('path', { d: ICONS[name] }));
+    }
+
     const CSS = `
 .dsh-note-card {
   position: fixed; z-index: 2147483000; box-sizing: border-box;
-  display: flex; flex-direction: column; gap: 4px; padding: 4px;
+  display: flex; flex-direction: column; overflow: hidden;
   font-family: inherit; font-size: 12px; line-height: 1.4;
   color: var(--dsw-alias-label-primary);
-  background: var(--dsw-alias-bg-overlay);
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 8px;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.16);
+  /* One white, outlined card: the host's overlay token is a grey fill in the light theme. */
+  background: var(--dsw-alias-bg-layer-1);
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  animation: dsh-note-in 120ms ease-out;
 }
-.dsh-note-menu { display: flex; align-items: center; gap: 4px; }
-/* The notice reads as a short paragraph, its answers right-aligned under it. */
-.dsh-note-notice { max-width: 300px; padding: 2px 4px; white-space: normal; }
-.dsh-note-noticeActions { justify-content: flex-end; }
+@keyframes dsh-note-in { from { opacity: 0; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .dsh-note-card { animation: none; } }
+/* Where the selection sits, in the UI language: a pale band over the entries. */
+.dsh-note-where {
+  /* Zero width, stretched by min-width: the entries alone size the card, and
+     a location longer than them ends in an ellipsis. */
+  box-sizing: border-box; width: 0; min-width: 100%;
+  display: flex; align-items: center; gap: 4px; padding: 3px 10px;
+  font-size: 11px; line-height: 14px; white-space: nowrap; color: var(--dsw-alias-label-tertiary);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 3%, transparent);
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+.dsh-note-whereText { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dsh-note-menu { display: flex; align-items: center; gap: 10px; padding: 4px 10px; }
+/* The notice reads as a short paragraph, its answers right-aligned under a hairline. */
+.dsh-note-notice { max-width: 300px; padding: 8px 10px; white-space: normal; }
+.dsh-note-noticeActions { justify-content: flex-end; border-top: 0.5px solid var(--dsw-alias-border-l2); }
+.dsh-note-card .dsh-note-error { padding: 0 10px 5px; }
+/* Borderless entries, each led by its key chip. The negative margin keeps the
+   hover fill from pushing the text apart. */
 .dsh-note-btn {
-  flex: 0 0 auto; padding: 3px 8px; font: inherit; white-space: nowrap; cursor: pointer; border-radius: 6px;
-  border: 1px solid var(--dsw-alias-border-l1);
-  background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary);
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px;
+  margin: 0 -4px; padding: 2px 4px; font: inherit; white-space: nowrap; cursor: pointer; border-radius: 5px;
+  border: none; background: transparent; color: var(--dsw-alias-label-primary);
 }
-.dsh-note-btn:hover { background: var(--dsw-alias-bg-layer-2); }
+.dsh-note-btn:hover { background: color-mix(in srgb, var(--dsw-alias-label-primary) 6%, transparent); }
 .dsh-note-btn[disabled] { opacity: 0.5; cursor: default; }
-.dsh-note-btn-primary {
-  background: var(--dsw-alias-brand-primary); border-color: var(--dsw-alias-brand-primary); color: #fff;
+.dsh-note-btn-primary { font-weight: 500; }
+.dsh-note-sep { flex: none; width: 1px; height: 14px; background: var(--dsw-alias-border-l3); }
+.dsh-note-key {
+  /* One height for every chip, whatever its glyph: M, S, ↵ or Esc. */
+  box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
+  height: 15px; min-width: 15px; padding: 0 3px;
+  font: inherit; font-size: 10px; font-weight: 400; line-height: 1;
+  color: var(--dsw-alias-label-secondary);
+  background: color-mix(in srgb, var(--dsw-alias-label-primary) 4%, transparent);
+  border: 0.5px solid var(--dsw-alias-border-l4); border-radius: 3px;
 }
-.dsh-note-btn-primary:hover {
-  /* The generic hover rule above would repaint this button with a light layer
-     fill; restate the brand fill, then darken it a touch where color-mix lands. */
-  background: var(--dsw-alias-brand-primary);
-  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 88%, #000);
-  border-color: var(--dsw-alias-brand-primary); color: #fff;
+/* The entry the card leans toward: its key on the composer's pale send blue. */
+.dsh-note-btn-primary .dsh-note-key {
+  color: var(--dsw-alias-state-business-primary);
+  color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 80%, var(--dsw-alias-label-primary));
+  background: var(--dsw-alias-state-business-tertiary);
+  border-color: color-mix(in srgb, var(--dsw-alias-state-business-primary) 40%, transparent);
 }
 .dsh-note-panel {
   box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;
@@ -1245,38 +1344,33 @@ window.__ModuleLoader__.load({
   font-family: inherit; font-size: 13px; line-height: 1.5;
   color: var(--dsw-alias-label-primary);
 }
+/* Outlined, icon-led Reset and New; the inherited-turns toggle, plain text, on the right. */
 .dsh-note-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; }
 .dsh-note-tool {
-  padding: 3px 8px; font: inherit; font-size: 12px; white-space: nowrap; cursor: pointer; border-radius: 6px;
-  color: var(--dsw-alias-label-secondary);
-  background: var(--dsw-alias-bg-layer-1);
-  border: 1px solid var(--dsw-alias-border-l1);
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 9px; font: inherit; font-size: 12px; line-height: 14px; white-space: nowrap; cursor: pointer; border-radius: 6px;
+  color: var(--dsw-alias-label-primary);
+  background: transparent;
+  border: 0.5px solid var(--dsw-alias-border-l4);
 }
-.dsh-note-tool:hover { background: var(--dsw-alias-bg-layer-2); color: var(--dsw-alias-label-primary); }
-.dsh-note-toolGlyph { font-size: 12px; line-height: 1; opacity: 0.85; }
-.dsh-note-tool-primary {
-  color: var(--dsw-alias-brand-primary);
-  border-color: var(--dsw-alias-brand-primary);
-  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent);
-}
-.dsh-note-tool-primary:hover {
-  color: var(--dsw-alias-brand-primary);
-  background: color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent);
-}
+.dsh-note-tool:hover { background: color-mix(in srgb, var(--dsw-alias-label-primary) 5%, transparent); }
+.dsh-note-icon { flex: none; }
 .dsh-note-tool-warn {
-  /* Reset archives the current chat: a caution tone, plainly apart from the
-     brand-tinted New beside it. Without color-mix the text and border still
-     carry the tone, only the fill falls back to the plain layer. */
-  color: var(--dsw-alias-state-warn-primary);
-  border-color: var(--dsw-alias-state-warn-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 10%, transparent);
+  /* Reset archives the current chat: a dark amber label, apart from New beside
+     it. Without color-mix it stays the host's plain warning label colour. */
+  color: var(--dsw-alias-state-warn-label);
+  color: color-mix(in srgb, var(--dsw-alias-state-warn-label) 70%, var(--dsw-alias-label-primary));
 }
 .dsh-note-tool-warn:hover {
-  color: var(--dsw-alias-state-warn-primary);
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 18%, transparent);
+  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 8%, transparent);
 }
-.dsh-note-tool-toggle { margin-left: auto; }
-.dsh-note-tool[data-active] { color: var(--dsw-alias-label-primary); background: var(--dsw-alias-bg-layer-2); }
+.dsh-note-tool-toggle {
+  margin-left: auto; padding: 5px 2px; border-color: transparent;
+  color: var(--dsw-alias-label-secondary);
+}
+.dsh-note-tool-toggle:hover, .dsh-note-tool-toggle[data-active] {
+  background: transparent; color: var(--dsw-alias-label-primary);
+}
 .dsh-note-sideBody { flex: 1 1 auto; min-height: 0; display: flex; }
 /* The fork's inherited prefix, folded away until the toolbar is asked to show it. */
 .dsh-note-sideBody[data-dsh-sidechat-collapsed] [data-dsh-sidechat-inherited] { display: none; }
@@ -1336,7 +1430,7 @@ window.__ModuleLoader__.load({
 }
 .dsh-note-sendBtn:hover:not(:disabled) { background: var(--dsw-alias-button-info-hover); }
 .dsh-note-sendBtn:disabled { opacity: 0.4; cursor: default; }
-.dsh-note-toolNote { margin-left: auto; font-size: 11px; color: var(--dsw-alias-label-tertiary); }
+.dsh-note-toolNote { margin-left: auto; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .dsh-note-error { font-size: 12px; color: var(--dsw-alias-state-error-primary); }
 `;
 
@@ -1518,6 +1612,30 @@ window.__ModuleLoader__.load({
         }
       }
 
+      /**
+       * The card's key chips, live while it is up. Typing in any field, a
+       * shortcut chord or an IME composition is never taken; a key the card
+       * answers is kept from the host and from the composer it focuses.
+       */
+      const onKeyDown = (event) => {
+        if (event.defaultPrevented || event.isComposing) return;
+        if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+        const target = event.target;
+        if (target instanceof Element
+          && (target.closest('input, textarea, select') !== null || target.isContentEditable === true)) return;
+        // Enter on a focused control is that control's own — a host button, or
+        // one of the card's (a tabbed-to Cancel must cancel, not send).
+        if (event.key === 'Enter' && target instanceof Element
+          && target.closest('button, a[href], [role="button"], summary') !== null) return;
+        const state = store.getSnapshot();
+        const name = menuKey(state, event.key, event.code);
+        if (name === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const actions = { main: toMain, side: toSide, chat: toChat, new: toNewSide, cancel: cancel };
+        void actions[name](state.pending);
+      };
+
       reactRoot.render(h(Overlay, {
         t: t,
         store: store,
@@ -1532,6 +1650,7 @@ window.__ModuleLoader__.load({
       document.addEventListener('mouseup', schedule);
       document.addEventListener('keyup', schedule);
       document.addEventListener('mousedown', onNativeMouseDown, true);
+      document.addEventListener('keydown', onKeyDown, true);
       recompute();
 
       return () => {
@@ -1539,6 +1658,7 @@ window.__ModuleLoader__.load({
         document.removeEventListener('mouseup', schedule);
         document.removeEventListener('keyup', schedule);
         document.removeEventListener('mousedown', onNativeMouseDown, true);
+        document.removeEventListener('keydown', onKeyDown, true);
         if (debounce !== undefined) clearTimeout(debounce);
         setTimeout(() => { reactRoot.unmount(); });   // same-frame unmount warns in React
         host.remove();
@@ -1568,36 +1688,33 @@ window.__ModuleLoader__.load({
       });
 
       if (selection === null) return null;
+      // One entry: its key chip, then its label; `primary` is the one the card leans toward.
+      const entry = (name, label, primary, onClick) => h('button', {
+        className: primary ? 'dsh-note-btn dsh-note-btn-primary' : 'dsh-note-btn', type: 'button',
+        'aria-keyshortcuts': MENU_KEYS[name].aria,
+        onClick: onClick,
+      }, h('kbd', { className: 'dsh-note-key' }, MENU_KEYS[name].chip), label);
       const notice = state.notice;
       if (notice !== undefined) {
         return h('div', { className: 'dsh-note-card', ref: cardRef, [OURS]: '', role: 'alertdialog' },
           h('div', { className: 'dsh-note-notice' }, t('sideChat.staleQuote', notice)),
           h('div', { className: 'dsh-note-menu dsh-note-noticeActions' },
-            h('button', {
-              className: 'dsh-note-btn', type: 'button',
-              onClick: () => props.cancel(),
-            }, t('action.cancel')),
-            h('button', {
-              className: 'dsh-note-btn dsh-note-btn-primary', type: 'button',
-              onClick: () => props.toNewSide(selection),
-            }, t('action.toNewSide'))));
+            entry('cancel', t('action.cancel'), false, () => props.cancel()),
+            h('span', { className: 'dsh-note-sep' }),
+            entry('new', t('action.toNewSide'), true, () => props.toNewSide(selection))));
       }
+      const where = whereLabel(selection, t);
       return h('div', { className: 'dsh-note-card', ref: cardRef, [OURS]: '' },
+        // The band never widens the card; cut short, it shows in full on hover.
+        h('div', { className: 'dsh-note-where', title: where },
+          icon('quote'), h('span', { className: 'dsh-note-whereText' }, where)),
         selection.side !== ''
           ? h('div', { className: 'dsh-note-menu' },
-              h('button', {
-                className: 'dsh-note-btn dsh-note-btn-primary', type: 'button',
-                onClick: () => props.toChat(selection),
-              }, t('action.toChat')))
+              entry('chat', t('action.toChat'), true, () => props.toChat(selection)))
           : h('div', { className: 'dsh-note-menu' },
-              h('button', {
-                className: 'dsh-note-btn', type: 'button',
-                onClick: () => props.toMain(selection),
-              }, t('action.toMain')),
-              h('button', {
-                className: 'dsh-note-btn dsh-note-btn-primary', type: 'button',
-                onClick: () => props.toSide(selection),
-              }, t('action.toSide'))),
+              entry('main', t('action.toMain'), false, () => props.toMain(selection)),
+              h('span', { className: 'dsh-note-sep' }),
+              entry('side', t('action.toSide'), true, () => props.toSide(selection))),
         state.error === '' ? null : h('div', { className: 'dsh-note-error' }, state.error),
       );
     }
@@ -1759,29 +1876,29 @@ window.__ModuleLoader__.load({
         };
       }, [boundaryTurn, childId, first, reference]);
 
-      // Reset (destructive, secondary) sits left of New (additive, brand-tinted):
-      // same size and shape, different glyph, colour and tooltip.
+      // Reset (destructive, caution-toned label) sits left of New (additive):
+      // same outlined shape, different icon, colour and tooltip.
       const tools = h('div', { className: 'dsh-note-tools' },
         h('button', {
           className: 'dsh-note-tool dsh-note-tool-warn', type: 'button',
           title: t('sideChat.resetHint'),
           onClick: () => { void props.resetSideChat(id); },
-        }, h('span', { className: 'dsh-note-toolGlyph' }, '↺'), t('sideChat.reset')),
+        }, icon('refresh'), t('sideChat.reset')),
         h('button', {
           className: 'dsh-note-tool dsh-note-tool-primary', type: 'button',
           title: t('sideChat.newHint'),
           onClick: () => props.newSideChat(id),
-        }, h('span', { className: 'dsh-note-toolGlyph' }, '＋'), t('sideChat.new')),
+        }, icon('plus'), t('sideChat.new')),
         hasChild && inherited > 0
           ? h('button', {
               className: 'dsh-note-tool dsh-note-tool-toggle', type: 'button',
               'data-active': entry.collapsed ? undefined : true,
               title: entry.collapsed ? t('sideChat.showInherited') : t('sideChat.hideInherited'),
               onClick: () => props.chats.patch(id, { collapsed: !entry.collapsed }),
-            }, h('span', { className: 'dsh-note-toolGlyph' }, entry.collapsed ? '▸' : '▾'),
-              t('sideChat.inherited', { turns: inherited }))
+            }, icon(entry.collapsed ? 'chevronRight' : 'chevronDown'),
+              t(inherited === 1 ? 'sideChat.inheritedOne' : 'sideChat.inherited', { turns: inherited }))
           : (!hasChild && entry.inherited !== null && entry.inherited.turns > 0
-              ? h('span', { className: 'dsh-note-toolNote' }, t('sideChat.inherited', { turns: entry.inherited.turns }))
+              ? h('span', { className: 'dsh-note-toolNote' }, t(entry.inherited.turns === 1 ? 'sideChat.inheritedOne' : 'sideChat.inherited', { turns: entry.inherited.turns }))
               : null),
       );
 
@@ -1916,6 +2033,8 @@ window.__ModuleLoader__.load({
         recheckBoundary: recheckBoundary,
         stepOf: stepOf,
         staleQuote: staleQuote,
+        whereLabel: whereLabel,
+        menuKey: menuKey,
         childGone: childGone,
         closeGoneSideChats: closeGoneSideChats,
         Overlay: Overlay,

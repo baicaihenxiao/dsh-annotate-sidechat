@@ -33,17 +33,28 @@ created with and the reply, and the next quote waiting in its composer.
 ## What it does
 
 1. **Select** text inside an assistant reply of the main chat. A two-item menu
-   opens right below the selection. In the right sidebar only a side chat that
-   has been sent is quotable (see 8), and no control or code-block chrome ever
-   is.
+   opens right below the selection, headed by where the selection sits in the UI
+   language, in one short form (`turn 3 · para 2 · 4 chars`, or `第3轮 · 第2段 · 4字`). The
+   entries alone size the card: a longer location ends in an ellipsis, and
+   hovering it shows the line in full.
+   Its two entries, `Main chat` and `Side chat` (Send to main chat / Send to
+   side chat below), are each led by their key: while the menu is up, `M` sends
+   to the main chat, `S` to a side chat and `Esc` dismisses it (`Enter` answers the one-item
+   menu of item 8 and the notice of item 4). A key is never taken while you type
+   in a field, nor with Ctrl, Cmd, Alt or Shift held, and `Enter` on a focused
+   button stays that button's. On a non-Latin layout (Russian, Greek, …) `M` and
+   `S` are the keys in those positions. In the right sidebar only a
+   side chat that has been sent is quotable (see 8), and no control or
+   code-block chrome ever is.
 2. **Send to main chat** appends the quote to the main composer draft: the text
    already there, one blank line, then the quote. Either destination ends the
    draft with a blank line and hands the composer the keyboard, so the caret
    waits on a fresh line with room to write. A quote that outgrows the box also
    scrolls it to the end, in the panel's own composer and in the host composer
    alike (the host's focus takes `preventScroll`, so the plugin scrolls it). (The
-   primary menu entry keeps its brand fill while hovered — it never flashes the
-   light layer colour.)
+   menu is one outlined white card — the location in a pale band, the entries
+   under it — that fades in (not under reduced motion); the entry it leans
+   toward shows its key chip on the composer's pale send blue.)
 3. **The quote is English-located** — which spot of the transcript is being
    quoted, then the passage as a block quote:
 
@@ -107,9 +118,9 @@ created with and the reply, and the next quote waiting in its composer.
 
    | Button | What it does |
    |---|---|
-   | `↺ Reset` | Archives the current chat and returns this page to an empty composer; the next send forks a fresh chat. Carries the theme's caution tone (amber), with a tooltip |
-   | `＋ New` | Opens another side-chat page for the same main chat (several can be open at once). Brand-tinted, so the additive action reads apart from the cautionary one at a glance |
-   | `▸/▾ N turns inherited from the main chat` | Shows or hides the fork's inherited turns; pinned to the right, tooltip names the action |
+   | `Reset` (refresh icon) | Archives the current chat and returns this page to an empty composer; the next send forks a fresh chat. Outlined, its label in the theme's caution tone (amber), with a tooltip |
+   | `New` (plus icon) | Opens another side-chat page for the same main chat (several can be open at once). Outlined in the neutral label colour, so the additive action reads apart from the cautionary one at a glance |
+   | `N turns inherited` (chevron) | Shows or hides the fork's inherited turns; plain text pinned to the right, tooltip names the action |
 
    Either action also *reveals* the page it targets: a collapsed column expands
    and the page is focused, so sending a quote is never invisible. When the
@@ -119,9 +130,10 @@ created with and the reply, and the next quote waiting in its composer.
    whose composer does not come up within ~5 s brings the menu back with an
    error instead of disappearing.
 8. **Quote inside a side chat.** Selecting text in a reply of a side chat that
-   has been sent opens a one-item menu, `Send to chat`, which appends the
-   located quote to that side chat's own composer — the same format, blank
-   lines and focus as the other two. A page that has not been sent yet, and any
+   has been sent opens a one-item menu, `Send to chat` (key `Enter`), under
+   the same location line, which appends the located quote to that side
+   chat's own composer — the same format, blank lines and focus as the other
+   two. A page that has not been sent yet, and any
    other sidebar chat, offers no menu.
 9. **Archived or deleted elsewhere.** A side chat is also an ordinary session,
    so it can be archived or deleted from the session list — after opening it
@@ -291,10 +303,11 @@ Covers the bundle registration, the quote and composer-draft seams, the naming
 rule (`sidechat-<n>-<title>`, with the directory fallback), side-chat numbering,
 zh/en key parity, the page-type registration (`multiple: true`, its guide entry,
 its tab chip), the pending panel for both a menu-opened and a guide-opened page
-(Reset left of New, each with its own glyph, class and tooltip — caution tone
-for Reset, brand tone for New — and a transcript that takes the room above a
-content-sized composer card whose rows scroll inside it), the primary hover
-fill, the inherited-prefix collapse rule, a fold boundary that an inherited
+(Reset left of New, each with its own icon, class and tooltip — caution tone
+for Reset — and a transcript that takes the room above a content-sized
+composer card whose rows scroll inside it), the menu's location line and key
+chips, which key picks which entry (and that a chord or a field keeps its keys),
+the primary key chip's accent, the inherited-prefix collapse rule, a fold boundary that an inherited
 quote of the same spot cannot capture, a fork point that ignores the seqs the
 main chat wrote after the fork (and a sent page correcting a stored boundary
 past it), where a selected reply quotes to (the
