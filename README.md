@@ -117,7 +117,9 @@ composer.
    Sending forks the main chat (`sessions.fork` with no explicit boundary, so the
    host cuts at the main chat's **last completed turn** — a turn still being
    written is never inherited), titles the child
-   `sidechat-<n>-<main chat title>`, and sends the draft as its first message.
+   `↳S<n>·<main chat title>` (`↳侧<n>·<main chat title>` in a Chinese UI; its
+   tab reads `↳S<n>` / `↳侧<n>`), and sends the draft as its first message.
+   Numbering still counts side chats titled `sidechat-<n>-…` by older versions.
    If the title or the first message fails, the fork is archived again, so a
    failed send never leaves an unlinked copy of the main chat in the list; a
    quote sent to the page while the chat was being created moves on to the new
@@ -133,6 +135,7 @@ composer.
    | Button | What it does |
    |---|---|
    | `Reset` (refresh icon) | Archives the current chat and returns this page to an empty composer; the next send forks a fresh chat, so the history above the composer is taken again from the main chat as it is now (turns it gained since included). Outlined, its label in the theme's caution tone (amber), with a tooltip |
+   | `Delete` (trash icon) | Archives the current chat, if it was sent, and closes this page; when nothing but the sidebar's guide is left, the sidebar collapses. Outlined, its label in the theme's error tone (red), with a tooltip |
    | `New` (plus icon) | Opens another side-chat page for the same main chat (several can be open at once). Outlined in the neutral label colour, so the additive action reads apart from the cautionary one at a glance |
    | `N turns inherited` (chevron) | Shows or hides the fork's inherited turns; plain text pinned to the right, tooltip names the action |
 
@@ -146,7 +149,7 @@ composer.
 8. **Quote inside a side chat.** Selecting text in a reply of a side chat that
    has been sent opens a one-item menu, `Send to chat` (key `Enter`), under
    the same location line (shown whole), naming that side chat in grey on the
-   right (`sidechat-3`). It appends the located quote to that side
+   right (`↳S3`). It appends the located quote to that side
    chat's own composer — the same format, blank lines and focus as the other
    two. A page that has not been sent yet, and any
    other sidebar chat, offers no menu.
@@ -159,7 +162,9 @@ composer.
    page starts over as before.
 10. **`New side chat` in the main chat header**, left of its right-hand
     controls, opens a side-chat page with its composer focused — this chat's
-    open but unused page (never sent, nothing typed) if there is one.
+    open but unused page (never sent, nothing typed) if there is one. Left of
+    it, while this chat has side-chat pages open, `Delete all` deletes each of
+    them the way `Delete` does, without asking.
 
 The side-chat panel is not a reimplementation: once the child exists, the panel
 declares its own `annotateSidechat.conversation` child slot, wraps it in the
@@ -301,11 +306,11 @@ Points worth knowing:
 | `ctx.sessions.list` | Numbering side chats and reading the main chat's title |
 | `ctx.sidebarRight.openTab` (`replaceTab`) + `active` / `mounted` / `isExpanded` / `focus` / `registerCloseHandler` | Opening a page per side chat (retried while the surface mounts), rewriting its params in place, finding the open one, bringing it into view, and forgetting a closed page |
 | `ctx.sidebarRightTabs` + `sidebar.right.pane.tab(.title)` | The page type, its body, and a chip naming each side chat |
-| `conversation.session.header.utilities` | The header's `New side chat` |
+| `conversation.session.header.utilities` | The header's `Delete all` and `New side chat` |
 | `annotateSidechat.conversation` (own child slot) + `conversation.content` factory | Rendering the shipped conversation inside the panel |
 | `ctx.sidebarRight.openTabs` + `close` | Dropping the per-tab records of pages no saved layout holds, and closing the on-screen chat's pages of side chats archived or deleted elsewhere |
 | `ctx.get('workspaces').list` (`archivedSessionIds`) + `ctx.sessions.list` (`ids`, `phase`) | Telling a side chat archived or deleted elsewhere — only once each list is ready |
-| `ctx.get('uiWorkspace').archiveSession` | `Reset side chat` archiving the chat it replaces, and a failed send archiving its fork |
+| `ctx.get('uiWorkspace').archiveSession` | `Reset side chat` archiving the chat it replaces, `Delete` and `Delete all` archiving sent side chats, and a failed send archiving its fork |
 | `ctx.conversation.input.for(scope).setDraft` / `focus` | Writing the quote into a composer and handing it the keyboard |
 
 These are internal seams, not a public contract: if the host renames one, the
@@ -319,11 +324,12 @@ node check.mjs
 ```
 
 Covers the bundle registration, the quote and composer-draft seams, the naming
-rule (`sidechat-<n>-<title>`, with the directory fallback), side-chat numbering,
+rule (`↳S<n>·<title>`, with the directory fallback), side-chat numbering (older
+`sidechat-<n>-` titles included),
 zh/en key parity, the page-type registration (`multiple: true`, its guide entry,
 its tab chip), the pending panel for both a menu-opened and a guide-opened page
-(Reset left of New, each with its own icon, class and tooltip — caution tone
-for Reset — and a transcript that takes the room above a content-sized
+(Reset, Delete and New in that order, each with its own icon, class and
+tooltip — caution tone for Reset, error tone for Delete — and a transcript that takes the room above a content-sized
 composer card whose rows scroll inside it), the menu's location line and key
 chips, which key picks which entry (and that a chord or a field keeps its keys),
 the primary key chip's accent, the inherited-prefix collapse rule, a fold boundary that an inherited
@@ -339,8 +345,12 @@ a page holding its side chat until it closes, and the cleanup of side chats
 archived or deleted elsewhere (archived or missing only once a list is ready,
 the on-screen chat's pages closing — from memory or their record — another
 chat's page letting its child go, Reset left alone, and a gone page rendering
-nothing of its chat), and the header's `New side chat` reusing an unused page,
-also one known only from its record.
+nothing of its chat), the header's `New side chat` reusing an unused page,
+also one known only from its record, and `Delete` / `Delete all` (a sent side
+chat archived and its page closed, a page never sent only closed, a failed
+archive or a send still running keeping the page, the column folding once only
+the guide is left, and `Delete all` shown only while this chat has pages,
+leaving other chats' pages alone).
 
 The check also replays every slot registration this plugin makes against the
 host's real `SlotCore` (`@deepseek-ai/dsh-client-ui-slots`), beside the

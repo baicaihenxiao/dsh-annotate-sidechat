@@ -43,6 +43,7 @@ assert.equal(loads.length, 1, 'exactly one module registration');
 assert.equal(loads[0].id, 'dsh-annotate-sidechat', 'factory id is the package name');
 
 const React = {
+  Fragment: 'fragment',
   createElement: (type, props, ...children) => ({ type, props: props || {}, children }),
   useEffect: () => {},
   useLayoutEffect: () => {},
@@ -113,10 +114,10 @@ assert.deepEqual(
 assert.equal(draftQuote({ text: 'x', turn: 2 }), quoteText({ text: 'x', turn: 2 }) + '\n\n');
 assert.ok(draftQuote({ text: 'x' }).endsWith('> x\n\n'), 'the composer draft ends with a blank line');
 
-// ── naming: sidechat-<n>-<main chat title> ─────────────────────────────────
-assert.equal(sideChatTitle(1, 'Fix the login timeout', '/tmp/repo'), 'sidechat-1-Fix the login timeout');
-assert.equal(sideChatTitle(2, '   ', '/tmp/my-repo'), 'sidechat-2-my-repo', 'no title falls back to the directory');
-assert.equal(sideChatTitle(3, '', ''), 'sidechat-3', 'no title and no directory leaves the number');
+// ── naming: <tab label>·<main chat title>, e.g. ↳S1·… ──────────────────────
+assert.equal(sideChatTitle('↳S1', 'Fix the login timeout', '/tmp/repo'), '↳S1·Fix the login timeout');
+assert.equal(sideChatTitle('↳侧2', '   ', '/tmp/my-repo'), '↳侧2·my-repo', 'no title falls back to the directory');
+assert.equal(sideChatTitle('↳S3', '', ''), '↳S3', 'no title and no directory leaves the label');
 
 // ── the fold boundary finds this side chat's own first message ─────────────
 // Every quote opens with the same location line, so an inherited message that
@@ -332,11 +333,12 @@ const ctx = {
   sessions: {
     list: { getSnapshot: () => ({
       current: 'parent-1',
-      ids: ['parent-1', 'child-1', 'child-2'],
+      ids: ['parent-1', 'child-1', 'child-2', 'child-3'],
       byId: {
         'parent-1': { id: 'parent-1', cwd: '/tmp/repo', title: 'Main chat title' },
         'child-1': { id: 'child-1', parentId: 'parent-1', title: 'sidechat-1-Main chat title' },
-        'child-2': { id: 'child-2', parentId: 'parent-1', title: 'sidechat-2-Main chat title' },
+        'child-2': { id: 'child-2', parentId: 'parent-1', title: '↳侧2·Main chat title' },
+        'child-3': { id: 'child-3', parentId: 'parent-1', title: '↳S3·Main chat title' },
       },
     }) },
     scope: () => undefined,
@@ -363,6 +365,8 @@ assert.equal(typeof registered[0].guide[0].description(), 'string');
 const zhKeys = Object.keys(dictionaries.annotateSidechat.zh).sort();
 const enKeys = Object.keys(dictionaries.annotateSidechat.en).sort();
 assert.deepEqual(zhKeys, enKeys, 'zh/en dictionaries cover the same keys');
+assert.deepEqual([dictionaries.annotateSidechat.en['sideChat.chip'], dictionaries.annotateSidechat.zh['sideChat.chip']],
+  ['↳S{index}', '↳侧{index}'], 'the tab label is what the side chat\'s title starts with');
 for (const key of ['action.toMain', 'action.toSide', 'guide.description', 'sideChat.new', 'sideChat.reset', 'sideChat.chip']) {
   assert.ok(zhKeys.includes(key), `dictionary carries ${key}`);
 }
@@ -466,6 +470,74 @@ assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane ses
   assert.equal(focused.at(-1), 'tab-reloaded', 'a page not rendered since a reload is found by its record');
   assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:page:tab-reloaded')).inherited.turns, 2,
     'which takes the fresh preview for when it renders');
+}
+
+// ── Delete and Delete all: archive what was sent, close the pages ──────────
+// The column folds once nothing but the guide is left in the chat on screen.
+{
+  const chats = injected.chats;
+  const kind = 'annotate-sidechat-note';
+  const archived = [];
+  const closed = [];
+  let failArchive = false;
+  let expanded = true;
+  const open = [{ sessionId: 'parent-d', tabId: 'tab-d-guide', kind: 'guide' }];
+  const sidebar = {
+    openTab() {},
+    openTabs: { getSnapshot: () => open.filter((tab) => !closed.includes(tab.tabId)), subscribe: () => () => {} },
+    mounted: { getSnapshot: () => 'parent-d' },
+    close: (tabId) => { closed.push(tabId); },
+    isExpanded: () => expanded,
+    toggleExpanded: () => { expanded = !expanded; },
+  };
+  const workspace = { archiveSession: async (id) => { if (failArchive) throw new Error('refused'); archived.push(id); } };
+  const originalGet = ctx.get;
+  ctx.get = (name) => ({ sidebarRight: sidebar, uiWorkspace: workspace })[name];
+  const page = (tabId, sessionId, childId) => {
+    const entry = chats.create(sessionId);
+    chats.bindTab(tabId, entry.id);
+    if (childId !== undefined) chats.patch(entry.id, { childId });
+    open.push({ sessionId, tabId, kind });
+    return entry.id;
+  };
+  const del = (tabIds) => plugin.__test.deleteSideChats(ctx, chats, tabIds, (key) => key);
+  const sentPage = page('tab-d-sent', 'parent-d', 'child-d');
+  page('tab-d-draft', 'parent-d');
+  page('tab-d-other', 'parent-elsewhere', 'child-e');
+
+  const sending = page('tab-d-busy', 'parent-busy');
+  chats.patch(sending, { busy: true });
+  await del(['tab-d-busy']);
+  assert.deepEqual(closed, [], 'a page still sending stays, or its fork would outlive the delete');
+
+  failArchive = true;
+  await del(['tab-d-sent']);
+  assert.deepEqual(closed, [], 'a page whose archive fails stays open');
+  assert.equal(chats.get(sentPage).error, 'sideChat.deleteFailed', 'and says why');
+  failArchive = false;
+  await del(['tab-d-sent']);
+  assert.deepEqual([archived, closed], [['child-d'], ['tab-d-sent']], 'Delete archives the sent side chat and closes its page');
+  assert.equal(expanded, true, 'the column stays while another side chat is open');
+  await del(['tab-d-draft']);
+  assert.deepEqual([archived.length, closed.at(-1)], [1, 'tab-d-draft'], 'a page never sent is only closed');
+  assert.equal(expanded, false, 'with only the guide left the column folds');
+
+  // The header offers Delete all only while this chat has pages.
+  const header = slots.find((entry) => entry.options.name === 'conversation.session.header.utilities');
+  const headerButtons = (sessionId) => header.component({ ...header.options.inject(sessionId), t: (key) => key })
+    .children.filter(Boolean).map((button) => button.children[1]);
+  assert.deepEqual(headerButtons('parent-d'), ['header.newSideChat'], 'no side-chat page, no Delete all');
+  page('tab-d-a', 'parent-d', 'child-a');
+  page('tab-d-b', 'parent-d');
+  expanded = true;
+  assert.deepEqual(headerButtons('parent-d'), ['header.deleteAll', 'header.newSideChat'], 'Delete all sits left of New side chat');
+  header.options.inject('parent-d').deleteAll();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(closed.slice(-2), ['tab-d-a', 'tab-d-b'], 'Delete all closes every page of this chat at once');
+  assert.deepEqual(archived, ['child-d', 'child-a'], 'archiving the sent ones');
+  assert.equal(closed.includes('tab-d-other'), false, 'and leaves another chat\'s side chats alone');
+  assert.equal(expanded, false, 'then folds the column');
+  ctx.get = originalGet;
 }
 
 // ── Reset takes the main chat's history again ──────────────────────────────
@@ -614,9 +686,16 @@ assert.match(source, /setInherited\(typeof boundaryTurn === 'number' && boundary
 }
 
 // ── numbering counts the parent's side chats, sessions and pages alike ──────
-assert.equal(nextSideChatIndex(ctx, injected.chats, 'parent-1'), 3, 'two children in the list ⇒ next is 3');
+assert.equal(nextSideChatIndex(ctx, injected.chats, 'parent-1'), 4, 'three children in the list ⇒ next is 4');
+{
+  const titled = (title) => ({ sessions: { list: { getSnapshot: () => ({ ids: ['c'], byId: { c: { parentId: 'p', title } } }) } } });
+  for (const title of ['sidechat-7-Main chat title', '↳S7·Main chat title', '↳侧7·Main chat title']) {
+    assert.equal(nextSideChatIndex(titled(title), injected.chats, 'p'), 8, `${title} keeps its number taken`);
+  }
+  assert.equal(nextSideChatIndex(titled('renamed by hand'), injected.chats, 'p'), 1, 'a title in no known form takes none');
+}
 injected.chats.create('parent-1');
-assert.equal(nextSideChatIndex(ctx, injected.chats, 'parent-1'), 4, 'a live page pushes the number up too');
+assert.equal(nextSideChatIndex(ctx, injected.chats, 'parent-1'), 5, 'a live page pushes the number up too');
 assert.equal(nextSideChatIndex(ctx, injected.chats, 'other'), 1, 'another parent starts at 1');
 
 // ── the pending panel: a menu-opened page restores its draft ───────────────
@@ -636,13 +715,14 @@ assert.equal(textarea.props.disabled, false, 'the empty composer is typable');
 assert.equal(typeof textarea.props.ref, 'object', 'the pending composer is ref-wired for focus');
 const toolButtons = find(tree, (node) => node.type === 'div' && node.props.className === 'dsh-note-tools')
   .children.filter(Boolean);
-assert.deepEqual(toolButtons.map((button) => button.children[1]), ['sideChat.reset', 'sideChat.new'],
-  'reset sits left of new');
-assert.deepEqual(toolButtons.map((button) => button.children[0].props['data-icon']), ['refresh', 'plus'],
+assert.deepEqual(toolButtons.map((button) => button.children[1]), ['sideChat.reset', 'sideChat.delete', 'sideChat.new'],
+  'reset, then delete, then new');
+assert.deepEqual(toolButtons.map((button) => button.children[0].props['data-icon']), ['refresh', 'trash', 'plus'],
   'each button carries its own icon');
 assert.ok(toolButtons[0].props.className.includes('dsh-note-tool-warn'), 'reset carries the caution tone');
-assert.ok(toolButtons[1].props.className.includes('dsh-note-tool-primary'), 'new carries its own class');
-assert.ok(toolButtons[0].props.title !== toolButtons[1].props.title, 'the two buttons explain themselves differently');
+assert.ok(toolButtons[1].props.className.includes('dsh-note-tool-danger'), 'delete carries the error tone');
+assert.ok(toolButtons[2].props.className.includes('dsh-note-tool-primary'), 'new carries its own class');
+assert.equal(new Set(toolButtons.map((button) => button.props.title)).size, 3, 'the buttons explain themselves differently');
 
 // ── a page opened from the guide mints its own side chat ───────────────────
 const bareTree = panelOf({}, 'pane-session', 'tab-2');

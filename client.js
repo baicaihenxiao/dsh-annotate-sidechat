@@ -19,7 +19,7 @@
  * A side chat is a real `sessions.fork` child of its main chat, created only
  * when its composer is sent: until then the page holds a plain draft and no
  * chat exists in the session list. The child is titled
- * `sidechat-<n>-<main chat title>` and rendered by the host's own
+ * `↳S<n>·<main chat title>` (`↳侧<n>·` in Chinese) and rendered by the host's own
  * `conversation.content` factory, so the panel body IS the shipped
  * conversation.
  *
@@ -50,10 +50,15 @@ window.__ModuleLoader__.load({
       'action.toMain': '主对话',
       'action.toNewSide': '发送到新的侧边对话',
       'action.toSide': '侧边对话',
-      'guide.description': '不引用也能直接输入；发送后新建 sidechat- 对话',
+      'guide.description': '不引用也能直接输入；发送后新建侧边对话',
+      'header.deleteAll': '全部删除',
+      'header.deleteAllHint': '归档并关闭此对话的所有侧边对话',
       'header.newSideChat': '新建侧边对话',
       'mainChat.failed': '无法写入主对话的输入框。',
-      'sideChat.chip': 'sidechat-{index}',
+      'sideChat.chip': '↳侧{index}',
+      'sideChat.delete': '删除',
+      'sideChat.deleteFailed': '删除失败：{message}',
+      'sideChat.deleteHint': '归档当前对话并关闭本页',
       'sideChat.hideInherited': '隐藏继承内容',
       'sideChat.inheritEmpty': '主对话还没有已完成的内容',
       'sideChat.inheritEarlier': '更早的轮次未在此加载',
@@ -62,14 +67,14 @@ window.__ModuleLoader__.load({
       'sideChat.inheritedOne': '继承 {turns} 轮',
       'sideChat.new': '新建',
       'sideChat.newHint': '再开一个侧边对话',
-      'sideChat.pendingPlaceholder': '输入内容，发送后新建 sidechat- 对话…',
+      'sideChat.pendingPlaceholder': '输入内容，发送后新建侧边对话…',
       'sideChat.quoteFailed': '无法写入侧边对话的输入框。',
       'sideChat.reset': '重置',
       'sideChat.resetFailed': '重置失败：{message}',
       'sideChat.resetHint': '归档当前对话，在本页重新开始',
       'sideChat.send': '发送',
       'sideChat.showInherited': '显示继承内容',
-      'sideChat.staleQuote': '这段内容来自主对话第 {turn} 轮，而当前的 sidechat-{index} 是在第 {fork} 轮 fork 的，看不到这一轮及其上下文。要改为发送到一个新的侧边对话吗？新对话会从主对话最新的轮次 fork。',
+      'sideChat.staleQuote': '这段内容来自主对话第 {turn} 轮，而当前的 ↳侧{index} 是在第 {fork} 轮 fork 的，看不到这一轮及其上下文。要改为发送到一个新的侧边对话吗？新对话会从主对话最新的轮次 fork。',
       'sideChat.empty': '无法打开侧边对话。',
       'sideChat.gone': '这个侧边对话已在别处归档或删除，本页随即关闭。',
       'sideChat.working': '正在创建侧边对话…',
@@ -92,10 +97,15 @@ window.__ModuleLoader__.load({
       'action.toMain': 'Main chat',
       'action.toNewSide': 'Send to a new side chat',
       'action.toSide': 'Side chat',
-      'guide.description': 'Type directly — no quote needed; sending creates a sidechat- chat',
+      'guide.description': 'Type directly — no quote needed; sending creates the side chat',
+      'header.deleteAll': 'Delete all',
+      'header.deleteAllHint': 'Archive and close every side chat of this chat',
       'header.newSideChat': 'New side chat',
       'mainChat.failed': 'The main chat composer could not be reached.',
-      'sideChat.chip': 'sidechat-{index}',
+      'sideChat.chip': '↳S{index}',
+      'sideChat.delete': 'Delete',
+      'sideChat.deleteFailed': 'Delete failed: {message}',
+      'sideChat.deleteHint': 'Archive this chat and close this page',
       'sideChat.hideInherited': 'Hide inherited',
       'sideChat.inheritEmpty': 'The main chat has nothing completed yet',
       'sideChat.inheritEarlier': 'Earlier turns not loaded here',
@@ -104,14 +114,14 @@ window.__ModuleLoader__.load({
       'sideChat.inheritedOne': '{turns} turn inherited',
       'sideChat.new': 'New',
       'sideChat.newHint': 'Open another side chat',
-      'sideChat.pendingPlaceholder': 'Type a message; sending creates a sidechat- chat…',
+      'sideChat.pendingPlaceholder': 'Type a message; sending creates the side chat…',
       'sideChat.quoteFailed': 'The side chat composer could not be reached.',
       'sideChat.reset': 'Reset',
       'sideChat.resetFailed': 'Reset failed: {message}',
       'sideChat.resetHint': 'Archive this chat and start over in this page',
       'sideChat.send': 'Send',
       'sideChat.showInherited': 'Show inherited',
-      'sideChat.staleQuote': 'This passage is from turn {turn} of the main chat, but sidechat-{index} was forked at turn {fork}, so it has neither that turn nor its context. Send it to a new side chat instead? The new one forks from the main chat\'s latest turn.',
+      'sideChat.staleQuote': 'This passage is from turn {turn} of the main chat, but ↳S{index} was forked at turn {fork}, so it has neither that turn nor its context. Send it to a new side chat instead? The new one forks from the main chat\'s latest turn.',
       'sideChat.empty': 'The side chat could not be opened.',
       'sideChat.gone': 'This side chat was archived or deleted elsewhere; this page closes.',
       'sideChat.working': 'Creating the side chat…',
@@ -153,8 +163,9 @@ window.__ModuleLoader__.load({
      *  `sidebar.chat.conversation`: ui-subagent declares and fills that one, and
      *  the slot registry refuses a second declaration or occupant. */
     const CONVERSATION_SLOT = 'annotateSidechat.conversation';
-    /** Side-chat titles all start here; the number after it is the chat's index. */
-    const TITLE_PREFIX = 'sidechat-';
+    /** The index a side-chat title starts with: `↳S<n>·` / `↳侧<n>·`, or the
+     *  older `sidechat-<n>-`, so their numbers stay taken. */
+    const TITLE_INDEX = /^(?:↳S|↳侧|sidechat-)(\d+)/;
     /** Plugin-owned per-page memory. The sidebar persists its layout (ids and
      *  addresses) but not the navigation params a page was opened with, so on
      *  reload a page would forget which side chat it is, what it inherited and
@@ -743,11 +754,14 @@ window.__ModuleLoader__.load({
       }
     }
 
-    /** `sidechat-<n>-<main chat title>`; the suffix falls back to the directory name. */
-    function sideChatTitle(index, parentTitle, cwd) {
+    /**
+     * `<label>·<main chat title>`, the label being the tab's own (`↳S1`); the
+     * suffix falls back to the directory name.
+     */
+    function sideChatTitle(label, parentTitle, cwd) {
       const named = typeof parentTitle === 'string' ? parentTitle.trim() : '';
       const suffix = named !== '' ? named : cwdBasename(cwd);
-      return TITLE_PREFIX + index + (suffix === '' ? '' : '-' + suffix);
+      return label + (suffix === '' ? '' : '·' + suffix);
     }
 
     function cwdBasename(cwd) {
@@ -757,7 +771,7 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The next free `sidechat-<n>` number for one parent: one past the highest
+     * The next free side-chat number for one parent: one past the highest
      * number any of its side chats carries, counting the sessions already in the
      * list (including archived ones) and the pending pages in hand.
      */
@@ -769,7 +783,7 @@ window.__ModuleLoader__.load({
           for (const id of list.ids) {
             const row = list.byId[id];
             if (row === undefined || row === null || row.parentId !== parentId) continue;
-            const match = typeof row.title === 'string' ? /^sidechat-(\d+)/.exec(row.title) : null;
+            const match = typeof row.title === 'string' ? TITLE_INDEX.exec(row.title) : null;
             if (match !== null) highest = Math.max(highest, Number(match[1]));
           }
         } catch (error) { /* the list may not be up yet — numbering still counts in-hand pages */ }
@@ -1129,13 +1143,13 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Fork `parentId`, title the child `sidechat-<index>-<parent title>`, and
+     * Fork `parentId`, title the child `<label>·<parent title>`, and
      * send `text` as its first message. This is the only place a side chat is
      * created, which is why nothing shows up in the session list before a
      * composer is sent.
      * @returns the child session id.
      */
-    async function createSideChat(ctx, parentId, text, index) {
+    async function createSideChat(ctx, parentId, text, label) {
       // No explicit boundary: the host cuts at the main chat's last completed
       // turn, so a side chat never inherits a turn that is still being written.
       const childId = await ctx.sessions.fork({ sessionId: parentId });
@@ -1148,7 +1162,7 @@ window.__ModuleLoader__.load({
         const info = parentInfo(ctx, parentId);
         // Rename first: an explicit title pins the session against automatic
         // generation from the first message.
-        const renamed = await session.rename(sideChatTitle(index, info.title, info.cwd));
+        const renamed = await session.rename(sideChatTitle(label, info.title, info.cwd));
         if (!renamed.ok) throw new Error(renamed.error.message);
         const submission = session.beginSubmission({ mode: 'queue', text: text, attachments: [] });
         const sent = await session.prompt([{ type: 'text', text: text }], 'queue', undefined, submission.requestId);
@@ -1192,7 +1206,7 @@ window.__ModuleLoader__.load({
       const index = entry.index > 0 ? entry.index : nextSideChatIndex(ctx, chats, entry.parentId);
       chats.patch(id, { busy: true, error: '', index: index });
       try {
-        const childId = await createSideChat(ctx, entry.parentId, text, index);
+        const childId = await createSideChat(ctx, entry.parentId, text, t('sideChat.chip', { index: index }));
         const boundaryTurn = inheritedTurnBoundary(ctx, entry.parentId, childId);
         // A quote sent here while the chat was being created was appended after
         // the text that went out; it moves on to the new chat's own composer.
@@ -1257,6 +1271,49 @@ window.__ModuleLoader__.load({
       openSideChatPage(ctx, chats.get(created.id));
     }
 
+    /** The side-chat pages one main chat has open in the sidebar. */
+    function sideChatTabsOf(ctx, parentId) {
+      const sidebar = sidebarRightOf(ctx);
+      try {
+        return sidebar.openTabs.getSnapshot()
+          .filter((tab) => tab.kind === TAB_KIND && tab.sessionId === parentId)
+          .map((tab) => tab.tabId);
+      } catch (error) { return []; }
+    }
+
+    /**
+     * `Delete` and `Delete all`: archive each page's sent side chat, then close
+     * the page (its close handler forgets the record and lets the child go). A
+     * page whose archive fails stays, with the error, and so does a page still
+     * sending, whose fork would land after the archive. The host folds the
+     * column when its last docked tab closes, but not when a guide is left
+     * beside it, so the column is folded whenever nothing but the guide remains.
+     */
+    async function deleteSideChats(ctx, chats, tabIds, t) {
+      const sidebar = sidebarRightOf(ctx);
+      if (sidebar === undefined) return;
+      const closed = new Set();
+      for (const tabId of tabIds) {
+        const id = chats.idOfTab(tabId);
+        if (id !== undefined && chats.get(id).busy) continue;
+        const childId = childOfTab(chats, tabId);
+        try {
+          if (childId !== null) await archiveSession(ctx, childId);
+        } catch (error) {
+          if (id !== undefined) chats.patch(id, { error: t('sideChat.deleteFailed', { message: String((error && error.message) || error) }) });
+          continue;
+        }
+        try { sidebar.close(tabId); closed.add(tabId); } catch (error) { /* already closed */ }
+      }
+      if (closed.size === 0) return;
+      try {
+        const onScreen = sidebar.mounted.getSnapshot();
+        const left = sidebar.openTabs.getSnapshot()
+          .some((tab) => tab.sessionId === onScreen && tab.kind !== 'guide' && !closed.has(tab.tabId));
+        if (!left && sidebar.isExpanded()) sidebar.toggleExpanded();
+      } catch (error) { /* no surface to fold */ }
+    }
+
     /**
      * The header's `New side chat`: go to this chat's open but unused page
      * (never sent, nothing typed; from its record if not rendered since a
@@ -1316,6 +1373,7 @@ window.__ModuleLoader__.load({
       plus: 'M12 5v14M5 12h14',
       chevronRight: 'M9 6l6 6l-6 6',
       chevronDown: 'M6 9l6 6l6 -6',
+      trash: 'M4 7h16M10 11v6M14 11v6M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3',
       quote: 'M10 11h-4a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v6c0 2.667 -1.333 4.333 -4 5M19 11h-4a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1h3a1 1 0 0 1 1 1v6c0 2.667 -1.333 4.333 -4 5',
     };
 
@@ -1413,6 +1471,11 @@ window.__ModuleLoader__.load({
 }
 .dsh-note-tool-warn:hover {
   background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 8%, transparent);
+}
+/* Delete archives and closes: the error tone, apart from Reset's caution. */
+.dsh-note-tool-danger { color: var(--dsw-alias-state-error-primary); }
+.dsh-note-tool-danger:hover {
+  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
 }
 .dsh-note-tool-toggle {
   margin-left: auto; padding: 5px 2px; border-color: transparent;
@@ -1938,14 +2001,19 @@ window.__ModuleLoader__.load({
         };
       }, [boundaryTurn, childId, first, reference]);
 
-      // Reset (destructive, caution-toned label) sits left of New (additive):
-      // same outlined shape, different icon, colour and tooltip.
+      // Reset (caution-toned) and Delete (error-toned) sit left of New
+      // (additive): same outlined shape, different icon, colour and tooltip.
       const tools = h('div', { className: 'dsh-note-tools' },
         h('button', {
           className: 'dsh-note-tool dsh-note-tool-warn', type: 'button',
           title: t('sideChat.resetHint'),
           onClick: () => { void props.resetSideChat(id); },
         }, icon('refresh'), t('sideChat.reset')),
+        h('button', {
+          className: 'dsh-note-tool dsh-note-tool-danger', type: 'button',
+          title: t('sideChat.deleteHint'),
+          onClick: () => { void props.deleteSideChat(tabId); },
+        }, icon('trash'), t('sideChat.delete')),
         h('button', {
           className: 'dsh-note-tool dsh-note-tool-primary', type: 'button',
           title: t('sideChat.newHint'),
@@ -2067,10 +2135,17 @@ window.__ModuleLoader__.load({
       return h('span', null, props.t('sideChat.chip', { index: index }));
     }
 
-    /** `New side chat` in the main chat header. */
-    function NewSideChatButton(props) {
-      return h('button', { className: 'dsh-note-tool', type: 'button', onClick: () => props.openSideChat() },
-        icon('plus'), props.t('header.newSideChat'));
+    /** The main chat header: `Delete all` while this chat has side-chat pages open, then `New side chat`. */
+    function SideChatHeader(props) {
+      const pages = React.useSyncExternalStore(props.subscribeTabs, props.pageCount);
+      return h(React.Fragment, null,
+        pages === 0 ? null : h('button', {
+          className: 'dsh-note-tool dsh-note-tool-danger', type: 'button',
+          title: props.t('header.deleteAllHint'),
+          onClick: () => props.deleteAll(),
+        }, icon('trash'), props.t('header.deleteAll')),
+        h('button', { className: 'dsh-note-tool', type: 'button', onClick: () => props.openSideChat() },
+          icon('plus'), props.t('header.newSideChat')));
     }
 
     /** The embedded conversation's one view, fixed to Chat. Module-level, so the
@@ -2115,6 +2190,7 @@ window.__ModuleLoader__.load({
         childGone: childGone,
         closeGoneSideChats: closeGoneSideChats,
         openUnusedSideChat: openUnusedSideChat,
+        deleteSideChats: deleteSideChats,
         Overlay: Overlay,
         selectionText: selectionText,
         capture: capture,
@@ -2195,11 +2271,16 @@ window.__ModuleLoader__.load({
             chats: chats,
             newSideChat: (id) => newSideChat(ctx, chats, id),
             resetSideChat: (id) => resetSideChat(ctx, chats, id, t),
+            deleteSideChat: (tabId) => deleteSideChats(ctx, chats, [tabId], t),
             sendSideChat: (id) => { void submitSideChat(ctx, chats, id, t); },
             recheckBoundary: (id, reference) => recheckBoundary(ctx, chats, id, reference),
             // One stable pair, so a page's subscription never churns.
             childGone: (childId) => !chats.isResetting(childId) && childGone(ctx, childId),
             subscribeChildLists: (fn) => subscribeChildLists(ctx, fn),
+          };
+          // The header's `Delete all` follows the open pages; one stable function.
+          const subscribeOpenTabs = (fn) => {
+            try { return sidebarRightOf(ctx).openTabs.subscribe(fn); } catch (error) { return () => {}; }
           };
           const disposeBody = ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
             name: 'sidebar.right.pane.tab',
@@ -2249,8 +2330,13 @@ window.__ModuleLoader__.load({
             id: 'annotate-sidechat-new',
             order: -100,   // left of the shipped utilities (-10 and up)
             locale: NS,
-            inject: (sessionId) => ({ openSideChat: () => openUnusedSideChat(ctx, chats, sessionId) }),
-          }, NewSideChatButton));
+            inject: (sessionId) => ({
+              openSideChat: () => openUnusedSideChat(ctx, chats, sessionId),
+              pageCount: () => sideChatTabsOf(ctx, sessionId).length,
+              subscribeTabs: subscribeOpenTabs,
+              deleteAll: () => { void deleteSideChats(ctx, chats, sideChatTabsOf(ctx, sessionId), t); },
+            }),
+          }, SideChatHeader));
           return () => { disposeHeader(); disposeChat(); disposeTitle(); disposeBody(); disposeClose(); disposeType(); };
         }), 'dsh-annotate-sidechat: side chat tab');
       },
