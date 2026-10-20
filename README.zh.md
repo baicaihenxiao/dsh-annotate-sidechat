@@ -19,11 +19,12 @@
 
 ![主对话里的引用菜单，以及右侧栏中的侧边对话](docs/sidechat.webp)
 
-> **状态：1.4.1 —— 已通过无头检查（`node check.mjs`，其中包括把插件的 slot 注册放到宿主真实的
-> slot 注册表上重放），并在 DeepSeek Harness `0.2.0-rc.2` 和 `0.2.1-rc.2` 的浏览器页面上验证了引用菜单、
-> 发送侧边对话、fork 点提示、Reset 和刷新；1.2.1 的折叠修复，以及 1.3.0 的菜单、快捷键和工具栏在 `0.2.1-rc.2`
-> 上验证（浅色与深色）；1.3.1 的预览修复在 `0.2.1-rc.2` 页面上以模拟方式验证；1.4.1 的顶栏按钮与引用流程在 `0.2.1-rc.2`
-> 上验证。侧边对话内的发送到此对话、清理在别处归档的侧边对话，以及点击 `新建侧边对话`，尚未在浏览器中验证。** 见[检查](#检查)。
+> **状态：1.5.0 —— 已在 DeepSeek Harness `0.2.1-rc.2`（唯一支持的宿主版本）上通过无头检查（`node check.mjs`，
+> 其中包括把插件的 slot 注册放到宿主真实的 slot 注册表上重放）。之前的版本在浏览器中验证过：引用菜单、
+> 发送侧边对话、fork 点提示、Reset 和刷新（`0.2.0-rc.2` 与 `0.2.1-rc.2`）；1.2.1 的折叠修复，以及 1.3.0 的菜单、
+> 快捷键和工具栏（浅色与深色）；1.3.1 的预览修复（在页面上模拟）；1.4.1 的顶栏按钮与引用流程。1.5.0 的
+> `删除`、`全部删除` 与更短的侧边对话命名，侧边对话内的发送到此对话、清理在别处归档的侧边对话，以及点击
+> `新建侧边对话`，尚未在浏览器中验证。** 见[检查](#检查)。
 
 ## 功能
 
@@ -149,8 +150,9 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 
 卸载：让 agent 移除 bundle `dsh-annotate-sidechat`，或在 DSH 的 Plugins 页面停用它。
 
-- 插件 `1.4.1` 面向 DeepSeek Harness `0.2.0-rc.2` 和 `0.2.1-rc.2`，两者都在浏览器中验证过。`peerDependencies`
-  钉的就是这两个版本，因此 DSH 会拒绝在未经检查的宿主上安装或启用本 bundle —— 具体钉了哪些包见[依赖要求](#依赖要求)。
+- 插件 `1.5.0` 只面向 DeepSeek Harness `0.2.1-rc.2`。`peerDependencies` 钉的就是这个版本，因此 DSH
+  会拒绝在未经检查的宿主上安装或启用本 bundle —— 包括 `0.2.0-rc.2`，最后支持它的是 `1.4.1`（在那里请安装
+  `#v1.4.1`）。具体钉了哪些包见[依赖要求](#依赖要求)。
 
 ## 更新
 
@@ -161,7 +163,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 |---|---|
 | `github:baicaihenxiao/dsh-annotate-sidechat` | `dsh plugin --profile <profile> update dsh-annotate-sidechat`，或先移除 bundle 再装一次 |
 | 本地克隆目录 | 在克隆目录里 `git pull` —— profile 链接的就是该目录 |
-| 指定 tag 或 commit | 安装你要的修订：`github:baicaihenxiao/dsh-annotate-sidechat#v1.4.1` |
+| 指定 tag 或 commit | 安装你要的修订：`github:baicaihenxiao/dsh-annotate-sidechat#v1.5.0` |
 
 需要知道的几点：
 
@@ -169,7 +171,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 - `plugin_manager` 的 `install_bundle` 会「装包 + 选中 bundle」两件事一起做；而 `dsh plugin`
   这条 CLI 通道只装包，用完之后需要重新选中 bundle。
 - 更新后刷新 Web 页面（或重启 `dsh web`）。
-- 用 tag 固定版本：`#v1.4.1`；分支名也可以。若用 commit SHA，必须是完整 40 位 ——
+- 用 tag 固定版本：`#v1.5.0`；分支名也可以。若用 commit SHA，必须是完整 40 位 ——
   pnpm 无法解析缩写 SHA。
 - 查看已装版本：
 
@@ -183,13 +185,14 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 |---|---|---|
 | `1.0.0`, `1.0.1`, `1.1.0` | `0.2.0-rc.2` | `^22.19.0 \|\| >=24.0.0` |
 | `1.2.0`, `1.2.1`, `1.3.0`, `1.3.1`, `1.4.0`, `1.4.1` | `0.2.0-rc.2`, `0.2.1-rc.2` | `^22.19.0 \|\| >=24.0.0` |
+| `1.5.0` | `0.2.1-rc.2` | `^22.19.0 \|\| >=24.0.0` |
 
 - 一个 DSH Web profile。本插件依赖的东西都随 DSH 提供：右侧栏的页面注册表与
   `sidebar.right.pane.tab` 座位（`@deepseek-ai/dsh-client-ui-sidebar-right`）、`conversation.content`
   factory 与输入框状态机（`@deepseek-ai/dsh-client-ui-conversation`）、会话归档
   （`@deepseek-ai/dsh-client-ui-workspace`）以及语言包注册（`@deepseek-ai/dsh-client-locale`）——
   所以本包自身不声明任何依赖。
-- 一个**已验证过的 DSH 版本**。`peerDependencies` 把上述四个宿主包钉在 `0.2.0-rc.2 || 0.2.1-rc.2`，`engines`
+- 一个**已验证过的 DSH 版本**。`peerDependencies` 把上述四个宿主包钉在 `0.2.1-rc.2`，`engines`
   与宿主的 Node 范围（`^22.19.0 || >=24.0.0`）一致。DSH 的插件管理器会把每个 `@deepseek-ai/dsh*`
   peer 范围**与 DSH 运行时版本**比对，不匹配则拒绝安装或启用（`incompatible-version`）——
   所以在未验证的宿主上是**明确报错**，而不是渲染出一个坏掉的侧边对话。本插件依赖宿主的内部接缝
@@ -197,7 +200,7 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
   若确需提前使用，可以授予**精确版本豁免**，即显式接受该风险：
 
   ```sh
-  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.4.1 --dsh-version <runtime> --accept-risk
+  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.5.0 --dsh-version <runtime> --accept-risk
   ```
 - `react` 与 `react-dom/client` 由浏览器模块表提供，除此之外不导入任何东西。
 
@@ -307,6 +310,8 @@ DOM 层另外用无头 Chrome 和一个临时脚手架跑过（未提交 —— 
 1.4.0 只做了无头检查；它用到的顶栏 slot 在 `0.2.0-rc.2` 与 `0.2.1-rc.2` 里声明方式相同。1.4.1 在真实的
 `0.2.1-rc.2` Web 页面上验证：`新建侧边对话` 位于顶栏工具按钮左侧，按 `S` 打开侧边对话且输入框获得焦点、
 发送它，以及之后的引用进入它的输入框。
+
+1.5.0 只做了无头检查（含 slot 注册表重放），针对 `0.2.1-rc.2`；从 1.5.0 起不再检查或支持 `0.2.0-rc.2`。
 
 ## 许可证
 

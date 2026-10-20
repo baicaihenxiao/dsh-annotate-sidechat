@@ -24,15 +24,16 @@ composer.
 
 ![The main chat with the quote menu open, and a side chat in the right sidebar](docs/sidechat.webp)
 
-> **Status: 1.4.1 — checked headlessly (`node check.mjs`, including a replay of
-> its slot registrations against the host's real slot registry) and tested in a
-> browser on DeepSeek Harness `0.2.0-rc.2` and `0.2.1-rc.2`: the quote menu,
-> sending a side chat, the fork-point notice, Reset and a reload; the 1.2.1 fold
-> fix and the 1.3.0 menu, keys and toolbar on `0.2.1-rc.2`, in light and dark;
-> the 1.3.1 preview fixes on `0.2.1-rc.2`, by simulation on the page; the 1.4.1
-> header button and quote flow on `0.2.1-rc.2`. Send to chat inside a side chat,
-> the cleanup of side chats archived elsewhere and a click on `New side chat`
-> have not been tried in a browser yet.** See [Checks](#checks).
+> **Status: 1.5.0 — checked headlessly (`node check.mjs`, including a replay of
+> its slot registrations against the host's real slot registry) on DeepSeek
+> Harness `0.2.1-rc.2`, the only host it supports. Earlier versions were tested
+> in a browser: the quote menu, sending a side chat, the fork-point notice, Reset
+> and a reload (on `0.2.0-rc.2` and `0.2.1-rc.2`); the 1.2.1 fold fix and the
+> 1.3.0 menu, keys and toolbar, in light and dark; the 1.3.1 preview fixes, by
+> simulation on the page; the 1.4.1 header button and quote flow. 1.5.0's
+> `Delete`, `Delete all` and shorter side-chat names, Send to chat inside a side
+> chat, the cleanup of side chats archived elsewhere and a click on `New side
+> chat` have not been tried in a browser yet.** See [Checks](#checks).
 
 ## What it does
 
@@ -216,10 +217,11 @@ install the DSH bundle at /absolute/path/to/dsh-annotate-sidechat
 To remove it again, ask the agent to remove the bundle `dsh-annotate-sidechat`,
 or disable it on DSH's Plugins page.
 
-- Plugin `1.4.1` targets DeepSeek Harness `0.2.0-rc.2` and `0.2.1-rc.2`, both
-  tested in a browser. Those versions are what `peerDependencies` pins, so DSH
-  refuses to install or activate this bundle on a host it has not been checked
-  against — see [Requirements](#requirements) for the exact packages.
+- Plugin `1.5.0` targets DeepSeek Harness `0.2.1-rc.2` only. That version is
+  what `peerDependencies` pins, so DSH refuses to install or activate this
+  bundle on a host it has not been checked against — `0.2.0-rc.2` included,
+  which `1.4.1` was the last to support (install `#v1.4.1` there). See
+  [Requirements](#requirements) for the exact packages.
 
 ## Updating
 
@@ -231,7 +233,7 @@ itself**. How you update depends on how you installed it:
 |---|---|
 | `github:baicaihenxiao/dsh-annotate-sidechat` | `dsh plugin --profile <profile> update dsh-annotate-sidechat`, or remove the bundle and install it again |
 | a local checkout | `git pull` in the checkout — the profile links the directory |
-| a tag or commit | install the revision you want: `github:baicaihenxiao/dsh-annotate-sidechat#v1.4.1` |
+| a tag or commit | install the revision you want: `github:baicaihenxiao/dsh-annotate-sidechat#v1.5.0` |
 
 Points worth knowing:
 
@@ -241,7 +243,7 @@ Points worth knowing:
   bundle. The `dsh plugin` CLI path only installs the package, so re-select the
   bundle afterwards if you use it.
 - Reload the Web page (or restart `dsh web`) after updating.
-- Pin a release by tag — `#v1.4.1`. A branch name works too. A commit SHA must
+- Pin a release by tag — `#v1.5.0`. A branch name works too. A commit SHA must
   be the full 40 characters: pnpm cannot resolve an abbreviated one.
 - To see what you have installed, read the version in your profile:
 
@@ -255,6 +257,7 @@ Points worth knowing:
 |---|---|---|
 | `1.0.0`, `1.0.1`, `1.1.0` | `0.2.0-rc.2` | `^22.19.0 \|\| >=24.0.0` |
 | `1.2.0`, `1.2.1`, `1.3.0`, `1.3.1`, `1.4.0`, `1.4.1` | `0.2.0-rc.2`, `0.2.1-rc.2` | `^22.19.0 \|\| >=24.0.0` |
+| `1.5.0` | `0.2.1-rc.2` | `^22.19.0 \|\| >=24.0.0` |
 
 - A DSH Web profile. Everything the bundle builds on ships with DSH: the right
   sidebar's page registry and `sidebar.right.pane.tab` seat
@@ -265,7 +268,7 @@ Points worth knowing:
   (`@deepseek-ai/dsh-client-locale`) — so the bundle declares no dependencies of
   its own.
 - A DSH version this bundle was verified against. `peerDependencies` pins those
-  four host packages to `0.2.0-rc.2 || 0.2.1-rc.2`, and `engines` matches the host's Node range
+  four host packages to `0.2.1-rc.2`, and `engines` matches the host's Node range
   (`^22.19.0 || >=24.0.0`). DSH's plugin manager evaluates every
   `@deepseek-ai/dsh*` peer range **against the DSH runtime version** and rejects
   installation or activation when one does not match (an `incompatible-version`
@@ -277,7 +280,7 @@ Points worth knowing:
   risk explicitly:
 
   ```sh
-  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.4.1 --dsh-version <runtime> --accept-risk
+  dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.5.0 --dsh-version <runtime> --accept-risk
   ```
 - The browser module table provides `react` and `react-dom/client`; this bundle
   imports nothing else.
@@ -432,6 +435,9 @@ chat and a sent side chat's toggle count were checked headlessly only.
 `0.2.0-rc.2` and `0.2.1-rc.2`. 1.4.1 was checked on a real `0.2.1-rc.2` Web
 page: `New side chat` left of the header's utilities, `S` opening a side chat
 with its composer focused, sending it, and a further quote reaching its composer.
+
+1.5.0 was checked headlessly only, the slot registry replay included, against
+`0.2.1-rc.2`; from 1.5.0 on, `0.2.0-rc.2` is no longer checked or supported.
 
 ## License
 
