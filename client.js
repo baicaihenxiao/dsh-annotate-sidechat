@@ -348,18 +348,77 @@ window.__ModuleLoader__.load({
       return part === 'reasoning' || part === 'response' ? part : undefined;
     }
 
-    /** `paragraph 2` / `code block 1` — the selection's block inside its reply. */
-    function blockLabel(step, range) {
+    /** The innermost block the selection starts in, or null outside `step`. */
+    function blockOf(step, range) {
       const start = elementOf(range.startContainer);
-      if (start === null) return undefined;
-      const block = start.closest(BLOCKS);
-      if (block === null || !step.contains(block)) return undefined;
+      const block = start === null ? null : start.closest(BLOCKS);
+      return block !== null && step.contains(block) ? block : null;
+    }
+
+    /** `paragraph`, `list item`, `heading` … — the English kind of one block. */
+    function blockKind(block) {
+      const tag = block.tagName.toLowerCase();
+      return /^h[1-6]$/.test(tag) ? 'heading' : (BLOCK_LABELS[tag] || 'block');
+    }
+
+    /** `paragraph 2` / `code block 1` — the menu's count of the block inside its reply. */
+    function blockLabel(step, block) {
+      if (block === null) return undefined;
       const tag = block.tagName.toLowerCase();
       const siblings = Array.from(step.querySelectorAll(BLOCKS)).filter((candidate) => candidate.tagName.toLowerCase() === tag);
       const index = siblings.indexOf(block);
-      if (index < 0) return undefined;
-      const label = /^h[1-6]$/.test(tag) ? 'heading' : BLOCK_LABELS[tag];
-      return (label === undefined ? 'block' : label) + ' ' + (index + 1);
+      return index < 0 ? undefined : blockKind(block) + ' ' + (index + 1);
+    }
+
+    /** How many characters of a block's text name it in the quote. */
+    const ANCHOR_MAX = 24;
+
+    /** An element's text without NON_QUOTE chrome, the way a selection of it reads. */
+    function plainText(element) {
+      const copy = element.cloneNode(true);
+      for (const each of copy.querySelectorAll(NON_QUOTE)) each.remove();
+      return copy.textContent;
+    }
+
+    /** The opening words of `value`, whitespace-collapsed, `…` when cut; undefined when blank. */
+    function excerpt(value) {
+      const chars = Array.from(normalizeText(value));
+      if (chars.length === 0) return undefined;
+      return chars.length > ANCHOR_MAX ? chars.slice(0, ANCHOR_MAX).join('').trimEnd() + '…' : chars.join('');
+    }
+
+    /**
+     * Only for a passage that reads more than once in its reply: words that
+     * tell the copies apart and that the model can find in its own Markdown —
+     * the block's opening words, or a table cell's row and column header. A
+     * passage read once is its own anchor; a count like `list item 16` numbers
+     * markup the model never sees.
+     */
+    function anchorOf(step, block, text) {
+      const passage = normalizeText(text);
+      if (block === null || normalizeText(step.textContent).split(passage).length <= 2) return undefined;
+      const tag = block.tagName.toLowerCase();
+      if (tag === 'td' || tag === 'th') return cellAnchor(block);
+      const head = excerpt(plainText(block));
+      // A passage that opens its block would only name itself again.
+      return head === undefined || passage.startsWith(head.replace(/…$/, '')) ? undefined : blockKind(block) + ' "' + head + '"';
+    }
+
+    /** `table row "Node", column "Minimum"`: the row by its first cell, and the column by its header. */
+    function cellAnchor(cell) {
+      const row = cell.parentElement;
+      const table = cell.closest('table');
+      if (row === null || table === null) return undefined;
+      const cells = Array.from(row.children);
+      const first = table.querySelector('tr');
+      // shortcut: the header is matched by index, which colspan would shift; Markdown tables have none.
+      const header = first === null || first === row ? undefined : first.children[cells.indexOf(cell)];
+      const at = [];
+      const key = excerpt(plainText(cells[0]));
+      if (key !== undefined) at.push('row "' + key + '"');
+      const column = header === undefined ? undefined : excerpt(plainText(header));
+      if (column !== undefined) at.push('column "' + column + '"');
+      return at.length === 0 ? undefined : 'table ' + at.join(', ');
     }
 
     /**
@@ -410,24 +469,31 @@ window.__ModuleLoader__.load({
       const step = owner.step;
       const text = selectionText(range);
       if (text === '') return null;
+      const block = blockOf(step, range);
       return {
         text: text,
         rect: range.getBoundingClientRect(),
         turn: turnOf(step),
         part: partOf(step),
-        block: blockLabel(step, range),
+        block: blockLabel(step, block),
+        anchor: anchorOf(step, block, text),
         side: owner.side,
       };
     }
 
     // ── the quote ───────────────────────────────────────────────────────────
 
-    /** English pointer at the quoted spot, e.g. `Quoted from the assistant's reply (turn 3, paragraph 2):`. */
+    /**
+     * English pointer at the quoted spot, e.g. `Quoted from the assistant's
+     * reply (turn 3):`, plus `in list item "Node 18 or later…"` for a passage
+     * the reply repeats. The menu's `block` count stays out: the model cannot
+     * count DOM blocks.
+     */
     function locationLine(snapshot) {
       const where = snapshot.part === 'reasoning' ? "the assistant's reasoning" : "the assistant's reply";
       const at = [];
       if (typeof snapshot.turn === 'number') at.push('turn ' + snapshot.turn);
-      if (typeof snapshot.block === 'string' && snapshot.block !== '') at.push(snapshot.block);
+      if (typeof snapshot.anchor === 'string' && snapshot.anchor !== '') at.push('in ' + snapshot.anchor);
       return at.length === 0 ? 'Quoted from ' + where + ':' : 'Quoted from ' + where + ' (' + at.join(', ') + '):';
     }
 
@@ -468,7 +534,7 @@ window.__ModuleLoader__.load({
      * numbers, no event windows, and no host cooperation.
      *
      * Every quote opens with the same location line, so an inherited message
-     * quoting the same spot reads alike for its first ~60 characters: the
+     * quoting the same spot reads alike for its first ~100 characters: the
      * needle runs well past it, and a known turn boundary rules out every
      * inherited row.
      */
@@ -2186,6 +2252,7 @@ window.__ModuleLoader__.load({
         stepOf: stepOf,
         staleQuote: staleQuote,
         whereLabel: whereLabel,
+        anchorOf: anchorOf,
         menuKey: menuKey,
         childGone: childGone,
         closeGoneSideChats: closeGoneSideChats,

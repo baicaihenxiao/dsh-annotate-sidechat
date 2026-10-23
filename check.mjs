@@ -76,14 +76,15 @@ function find(node, predicate) {
 const { locationLine, quoteText, draftQuote, appendDraft, nextDraft, sideChatTitle, nextSideChatIndex } = plugin.__test;
 
 assert.equal(
-  locationLine({ part: 'response', turn: 3, block: 'paragraph 2' }),
-  "Quoted from the assistant's reply (turn 3, paragraph 2):",
+  locationLine({ part: 'response', turn: 3, block: 'list item 16', anchor: 'list item "Node 18 or later"' }),
+  "Quoted from the assistant's reply (turn 3, in list item \"Node 18 or later\"):",
+  'a text anchor names the spot; the menu\'s block count stays out',
 );
 assert.equal(locationLine({ part: 'reasoning', turn: 4 }), "Quoted from the assistant's reasoning (turn 4):");
 assert.equal(locationLine({}), "Quoted from the assistant's reply:");
 
 const quote = quoteText({ text: 'alpha\nbeta', turn: 1, block: 'paragraph 1' });
-assert.equal(quote, "Quoted from the assistant's reply (turn 1, paragraph 1):\n> alpha\n> beta");
+assert.equal(quote, "Quoted from the assistant's reply (turn 1):\n> alpha\n> beta");
 for (const banned of ['针对这段回复', '我的注解']) assert.ok(!quote.includes(banned), `quote still carries "${banned}"`);
 assert.ok(quoteText({ text: 'x', turn: 2 }).startsWith('Quoted from '), 'an untitled selection still names its reply');
 const long = quoteText({ text: 'a'.repeat(400), turn: 1 });
@@ -242,6 +243,48 @@ assert.equal(whereLabel({ text: 'ab', part: 'reasoning', turn: 4, block: 'code b
   'where.turn{"turn":4} · where.reasoning · where.code block{"n":1} · where.chars{"chars":2}',
   'the thinking block and a multi-word block kind are named');
 assert.equal(whereLabel({ text: 'x' }, tWhere), 'where.chars{"chars":1}', 'an unplaced selection still gives its length');
+
+// ── the quote's anchor: only for a passage its reply repeats ──────────────
+{
+  const { anchorOf } = plugin.__test;
+  /** A tiny element tree: tag, own text, children. */
+  class Tag {
+    constructor(tag, text = '', children = []) {
+      Object.assign(this, { tagName: tag.toUpperCase(), text, children, parentElement: null });
+      for (const child of children) child.parentElement = this;
+    }
+    get textContent() { return this.text + this.children.map((child) => child.textContent).join(''); }
+    *walk() { yield this; for (const child of this.children) yield* child.walk(); }
+    matches(selector) { return selector.split(',').some((part) => part.trim() === this.tagName.toLowerCase()); }
+    querySelectorAll(selector) { return [...this.walk()].slice(1).filter((each) => each.matches(selector)); }
+    querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
+    closest(selector) {
+      for (let at = this; at !== null; at = at.parentElement) if (at.matches(selector)) return at;
+      return null;
+    }
+    cloneNode() { return new Tag(this.tagName, this.text, this.children.map((child) => child.cloneNode())); }
+    remove() { this.parentElement.children.splice(this.parentElement.children.indexOf(this), 1); }
+  }
+  const node = new Tag('li', 'Node 18 or later, on macOS or Linux');
+  const browser = new Tag('li', 'A browser');
+  const pre = new Tag('pre', '', [new Tag('button', 'Copy'), new Tag('code', 'npm install dsh-annotate-sidechat')]);
+  const td = new Tag('td', '18');
+  const step = new Tag('div', '', [
+    new Tag('ul', '', [node, new Tag('li', 'Python 3.11 or later, then install the tools'), browser, new Tag('li', 'A browser')]),
+    pre,
+    new Tag('table', '', [
+      new Tag('thead', '', [new Tag('tr', '', [new Tag('th', 'Tool'), new Tag('th', 'Minimum')])]),
+      new Tag('tbody', '', [new Tag('tr', '', [new Tag('td', 'Node'), td])]),
+    ]),
+  ]);
+  assert.equal(anchorOf(step, node, 'macOS'), undefined, 'a passage the reply holds once is its own anchor');
+  assert.equal(anchorOf(step, node, 'or later'), 'list item "Node 18 or later, on mac…"',
+    'a repeated passage names its block by the opening words');
+  assert.equal(anchorOf(step, pre, 'install'), 'code block "npm install dsh-annotate…"', 'code chrome stays out of the anchor');
+  assert.equal(anchorOf(step, td, '18'), 'table row "Node", column "Minimum"', 'a repeated cell names its row and column');
+  assert.equal(anchorOf(step, browser, 'A browser'), undefined, 'a block that repeats whole has no words to tell it apart');
+  assert.equal(anchorOf(step, null, 'Node'), undefined, 'a selection outside every block has no anchor');
+}
 const mainState = { pending: { side: '' } };
 assert.equal(menuKey(mainState, 'm'), 'main', 'M sends to the main chat');
 assert.equal(menuKey(mainState, 'S'), 'side', 'S sends to a side chat, either case');

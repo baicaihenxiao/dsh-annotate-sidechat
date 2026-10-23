@@ -29,11 +29,19 @@ select a reply inside a sent side chat  →  Send to chat: the quote goes to tha
   side chat, `Esc` to close. Keys are left alone while you type in a field or
   hold a modifier.
 - **The quote** says where it came from (in English, whatever the UI language),
-  block-quotes the passage, and leaves a blank line under it for your own words:
+  block-quotes the passage, and leaves a blank line under it for your own words.
+  The passage itself is what the model searches for, so the location is just
+  the turn. Only when the same passage appears more than once in that reply
+  are words added to tell the copies apart: the opening words of its block,
+  or, for a table cell, its row and column header. Blocks are never counted,
+  because the model sees Markdown, not the page:
 
   ```
-  Quoted from the assistant's reply (turn 3, paragraph 2):
+  Quoted from the assistant's reply (turn 3):
   > the selected passage
+
+  Quoted from the assistant's reply (turn 3, in table row "Node", column "Minimum"):
+  > 18
   ```
 
 - **Send to main chat** appends the quote to the main composer after a blank line.
