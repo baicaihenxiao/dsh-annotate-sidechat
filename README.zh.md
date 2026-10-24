@@ -16,8 +16,8 @@
 
 ![主对话里的引用菜单，以及右侧栏中的侧边对话](docs/sidechat.webp)
 
-> **状态：1.5.0**，已在 DeepSeek Harness `0.2.1-rc.2`（唯一支持的宿主版本）上通过无头检查（`node check.mjs`）。
-> 1.5.0 新增的功能尚未在浏览器中验证；哪些版本验证过见[依赖要求](#依赖要求)。
+> **状态：1.6.0**，已在 DeepSeek Harness `0.2.1-rc.2`（唯一支持的宿主版本）上通过无头检查（`node check.mjs`）。
+> 1.6.0 的引用位置说明已在浏览器中看到生效；1.5.0 新增的功能尚未在浏览器中验证；哪些版本验证过见[依赖要求](#依赖要求)。
 
 ## 用法
 
@@ -81,7 +81,7 @@ install the DSH bundle github:baicaihenxiao/dsh-annotate-sidechat
 |---|---|
 | `github:baicaihenxiao/dsh-annotate-sidechat` | `dsh plugin --profile <profile> update dsh-annotate-sidechat`，或先移除 bundle 再装一次 |
 | 本地克隆目录 | 在克隆目录里 `git pull` |
-| 指定 tag 或 commit | 安装你要的修订，如 `github:baicaihenxiao/dsh-annotate-sidechat#v1.5.0`（commit SHA 必须是完整 40 位） |
+| 指定 tag 或 commit | 安装你要的修订，如 `github:baicaihenxiao/dsh-annotate-sidechat#v1.6.0`（commit SHA 必须是完整 40 位） |
 
 `dsh plugin` CLI 只装包，用完之后需要重新选中 bundle。更新后刷新 Web 页面。
 
@@ -91,14 +91,14 @@ install the DSH bundle github:baicaihenxiao/dsh-annotate-sidechat
 |---|---|---|
 | `1.0.0` – `1.1.0` | `0.2.0-rc.2` | `1.0.0` |
 | `1.2.0` – `1.4.1` | `0.2.0-rc.2`、`0.2.1-rc.2` | `1.2.0`（两者）；`1.2.1`、`1.3.0`、`1.3.1`、`1.4.1`（`0.2.1-rc.2`） |
-| `1.5.0` | `0.2.1-rc.2` | 尚未 |
+| `1.5.0` – `1.6.0` | `0.2.1-rc.2` | 仅 `1.6.0` 的引用位置说明 |
 
 Node `^22.19.0 || >=24.0.0`。其余依赖都随 DSH 提供，本包自身不声明任何依赖。因为插件依赖宿主的内部接缝（见下），
 `peerDependencies` 把宿主包精确钉在对应 DSH 版本，DSH 会拒绝在其他版本上安装。`0.2.0-rc.2` 上请安装 `#v1.4.1`。
 若确需在未验证的宿主上使用，可以显式接受风险：
 
 ```sh
-dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.5.0 --dsh-version <runtime> --accept-risk
+dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.6.0 --dsh-version <runtime> --accept-risk
 ```
 
 ## 文件
