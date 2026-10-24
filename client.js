@@ -397,8 +397,7 @@ window.__ModuleLoader__.load({
     function anchorOf(step, block, text) {
       const passage = normalizeText(text);
       if (block === null || normalizeText(step.textContent).split(passage).length <= 2) return undefined;
-      const tag = block.tagName.toLowerCase();
-      if (tag === 'td' || tag === 'th') return cellAnchor(block);
+      if (blockKind(block) === 'table cell') return cellAnchor(block);
       const head = excerpt(plainText(block));
       // A passage that opens its block would only name itself again.
       return head === undefined || passage.startsWith(head.replace(/…$/, '')) ? undefined : blockKind(block) + ' "' + head + '"';
@@ -534,7 +533,7 @@ window.__ModuleLoader__.load({
      * numbers, no event windows, and no host cooperation.
      *
      * Every quote opens with the same location line, so an inherited message
-     * quoting the same spot reads alike for its first ~100 characters: the
+     * quoting the same spot reads alike for its first ~130 characters: the
      * needle runs well past it, and a known turn boundary rules out every
      * inherited row.
      */
