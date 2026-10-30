@@ -898,7 +898,8 @@ assert.match(source, /\.dsh-note-transcript\s*\{[^}]*flex:\s*1 1 auto/, 'the tra
 assert.match(source, /\.dsh-note-transcript\s*\{[^}]*overflow:\s*hidden/, 'and clips its own box');
 assert.match(source, /\.dsh-note-transcriptRows\s*\{[^}]*overflow:\s*auto/, 'with the rows scrolling inside it');
 assert.match(source, /\.dsh-note-composer\s*\{[^}]*flex:\s*0 0 auto/, 'the composer hugs its content');
-assert.match(source, /\.dsh-note-composer\s*\{[^}]*max-height:\s*45%/, 'and never eats the panel');
+assert.match(source, /\.dsh-note-composer\s*\{[^}]*max-height:\s*50%/, 'and never takes over half the panel');
+assert.match(source, /\.dsh-note-input\s*\{[^}]*field-sizing:\s*content/, 'the textarea grows with its lines');
 assert.match(source, /\.dsh-note-composerRow\s*\{[^}]*justify-content:\s*flex-end/,
   'the send button sits at the right');
 assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*border-radius:\s*var\(--dsw-radius-md/,

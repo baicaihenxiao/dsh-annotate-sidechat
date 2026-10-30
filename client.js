@@ -1517,6 +1517,9 @@ window.__ModuleLoader__.load({
   font-family: inherit; font-size: 13px; line-height: 1.5;
   color: var(--dsw-alias-label-primary);
 }
+/* A sent side chat's composer docks on the host's own inset, as the main chat's
+   does, so the panel adds none below it and the two composers line up. */
+.dsh-note-panel:has(> .dsh-note-sideBody) { padding-bottom: 0; }
 /* Outlined, icon-led Reset and New; the inherited-turns toggle, plain text, on the right. */
 .dsh-note-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: none; }
 .dsh-note-tool {
@@ -1584,8 +1587,9 @@ window.__ModuleLoader__.load({
    content font size, and the same 34px round send button. */
 .dsh-note-composer {
   /* Twice the height the card had, pinned under the transcript the way the host
-     composer sits under the chat: the history keeps the room it does not need. */
-  flex: 0 0 auto; min-height: 172px; max-height: 45%; overflow: auto; box-sizing: border-box;
+     composer sits under the chat: the history keeps the room it does not need.
+     It grows with its text up to half the panel; past that the textarea scrolls. */
+  flex: 0 0 auto; min-height: 172px; max-height: 50%; overflow: auto; box-sizing: border-box;
   display: flex; flex-direction: column;
   padding: 4px 8px 6px;
   font-size: var(--dsh-content-font-size, 14px);
@@ -1596,8 +1600,10 @@ window.__ModuleLoader__.load({
   box-shadow: var(--dsw-elevation-soft);
   border: 0; border-radius: var(--dsw-radius-panel, 12px);
 }
+/* Sized by its lines (as the host's own textareas are), so the card grows with
+   them; capped, it shrinks back toward its min-height and scrolls instead. */
 .dsh-note-input {
-  flex: 1 1 auto; min-height: 72px; width: 100%; box-sizing: border-box;
+  flex: 1 1 auto; min-height: 72px; width: 100%; box-sizing: border-box; field-sizing: content;
   display: block; resize: none; padding: 4px 8px 0 14px;
   font-family: var(--dsw-font-family); font-size: inherit; line-height: inherit;
   color: inherit; caret-color: var(--dsw-alias-state-business-primary);
