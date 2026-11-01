@@ -63,6 +63,20 @@ select a reply inside a sent side chat  →  Send to chat: the quote goes to tha
   main chat at its last completed turn, titles the fork `↳S<n>·<main chat title>`
   (`↳侧<n>·…` in a Chinese UI) and sends the draft as its first message. If that
   fails, the fork is archived again.
+- **Pick the model and effort before sending.** Left of `Send`, one menu lists
+  the host's models by provider and another the chosen model's reasoning
+  efforts; both start on the main chat's. In Chromium each list opens in the
+  page, on the side with more room, so it shows whole instead of scrolling;
+  other browsers use the OS menu. Switching models resets the effort to the new
+  model's default, as in the main chat. A fork carries on with
+  the main chat's model and effort, so nothing is written unless the choice
+  differs; then it is put on the fork before its first message, and, as with
+  any model switch in DSH, also becomes the host's default for new chats. A
+  pick the host no longer offers is shown as unavailable and is never swapped
+  for another model: if the host refuses a pick, or it cannot be set, nothing
+  is sent and the page says why. With nothing picked, the side chat is sent on
+  the main chat's model either way. `Reset`, and `New side chat` reusing
+  an empty page, go back to the main chat's. The main chat keeps its own.
 - **Inherited turns are folded away.** Each page has a toolbar:
 
   | Button | What it does |
@@ -146,6 +160,7 @@ dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.7.0 --dsh-v
 | `[data-conversation-session]`, `[data-sidebar-right-*]` | Which chat a selection is in; sidebar text is quotable only in a sent side chat |
 | `[data-chat-flow-key]`, `[data-chat-flow-kind="user"]`, `ctx.sessions.binding().eventSource` | Where the inherited turns end, for folding |
 | `ctx.sessions.fork` / `retain` / `binding.session` / `list` | Creating, titling, holding and numbering side chats |
+| `ctx.modelDirectories.directoryFor(id)`: `store`, `load`, `select`; `ctx.sessions.retainInfo` | The draft's model and effort menus, and putting the choice on the fork; noticing the main chat's binding arrive or change |
 | `ctx.sidebarRight`, `ctx.sidebarRightTabs`, `sidebar.right.pane.tab(.title)` | The side-chat page type and its tab chip; opening, revealing and closing pages |
 | `conversation.session.header.utilities` | `New side chat` and `Delete all` in the header |
 | `annotateSidechat.conversation` + `conversation.content` | Rendering the host's conversation in the panel |

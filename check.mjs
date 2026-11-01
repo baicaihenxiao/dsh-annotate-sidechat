@@ -42,6 +42,7 @@ new Function(source)();
 assert.equal(loads.length, 1, 'exactly one module registration');
 assert.equal(loads[0].id, 'dsh-annotate-sidechat', 'factory id is the package name');
 
+const subscribed = new Set();
 const React = {
   Fragment: 'fragment',
   createElement: (type, props, ...children) => ({ type, props: props || {}, children }),
@@ -50,7 +51,8 @@ const React = {
   useMemo: (fn) => fn(),
   useRef: () => ({ current: null }),
   useState: (value) => [typeof value === 'function' ? value() : value, () => {}],
-  useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
+  // Every source a render subscribes to, so a check can see what redraws a page.
+  useSyncExternalStore: (subscribe, getSnapshot) => { subscribed.add(subscribe); return getSnapshot(); },
 };
 
 const plugin = loads[0].factory((name) => {
@@ -349,14 +351,27 @@ const tabs = {
     return () => {};
   },
 };
+// `ctx.modelDirectories`: a session the test gave no directory has no scope.
+const directories = new Map();
+let modelService;
+const bindings = {};
+const retentions = {};
+const models = {
+  directoryFor: (sessionId) => {
+    if (!directories.has(sessionId)) throw new Error(`session "${sessionId}" resolved no scope`);
+    return directories.get(sessionId);
+  },
+};
 const ctx = {
   effect: (fn) => {
     const dispose = fn();
     if (typeof dispose === 'function') disposers.push(dispose);
     return () => {};
   },
-  inject: (_deps, callback) => {
-    callback({ get: (name) => (name === 'sidebarRightTabs' ? tabs : undefined) });
+  inject: (deps, callback) => {
+    const scope = { get: (name) => (name === 'sidebarRightTabs' ? tabs : (name === 'modelDirectories' ? models : undefined)) };
+    const dispose = callback(scope);
+    if (deps.includes('modelDirectories')) modelService = { withdraw: dispose, provide: () => callback(scope) };
     return () => {};
   },
   slots: {
@@ -385,7 +400,9 @@ const ctx = {
       },
     }) },
     scope: () => undefined,
-    binding: () => undefined,
+    // A session the test gave a model directory is retained: it has a binding.
+    binding: (id) => (directories.has(id) ? (bindings[id] ??= { id }) : undefined),
+    retainInfo: (id) => (retentions[id] ??= { subscribe: () => () => {}, getSnapshot: () => null }),
     retain: () => ({
       ready: Promise.resolve(),
       binding: { session: {} },
@@ -493,7 +510,7 @@ assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane ses
   page('tab-other', 'parent-other', {});
   go('parent-h');
   assert.deepEqual([opened.length, focused.length], [1, 0], 'no unused page of this chat: a new one opens');
-  const fresh = page('tab-fresh', 'parent-h', {});
+  const fresh = page('tab-fresh', 'parent-h', { model: { provider: 'other', model: 'plain' } });
   // The main chat has two turns now, none when that page was created.
   const rows = [1, 2].flatMap((turn) => ['user', 'assistant-step'].map((kind) => Object.assign(
     new FakeElement({ 'data-chat-flow-key': `${kind}-${turn}`, 'data-chat-flow-kind': kind, 'data-chat-turn': String(turn) }),
@@ -505,14 +522,16 @@ assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane ses
   assert.deepEqual([opened.length, focused], [1, ['tab-fresh']], 'an unused page is brought into view instead');
   assert.equal(chats.get(fresh).focusToken, 1, 'its composer asked for the keyboard');
   assert.equal(chats.get(fresh).inherited.turns, 2, 'and it previews the main chat as it is now');
+  assert.equal(chats.get(fresh).model, null, 'and drops an earlier model pick, so it follows the main chat as Reset does');
   open = [{ sessionId: 'parent-r', tabId: 'tab-reloaded', kind: 'annotate-sidechat-note' }];
-  storage.set('dsh-annotate-sidechat:page:tab-reloaded', JSON.stringify({ id: 'note-r', parentId: 'parent-r', index: 1 }));
+  storage.set('dsh-annotate-sidechat:page:tab-reloaded', JSON.stringify({ id: 'note-r', parentId: 'parent-r', index: 1, model: { provider: 'other', model: 'plain' } }));
   mainChat.dataset.conversationSession = 'parent-r';
   go('parent-r');
   delete document.querySelectorAll;
   assert.equal(focused.at(-1), 'tab-reloaded', 'a page not rendered since a reload is found by its record');
   assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:page:tab-reloaded')).inherited.turns, 2,
     'which takes the fresh preview for when it renders');
+  assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:page:tab-reloaded')).model, undefined, 'and drops its model pick too');
 }
 
 // ── Delete and Delete all: archive what was sent, close the pages ──────────
@@ -905,6 +924,13 @@ assert.match(source, /\.dsh-note-composerRow\s*\{[^}]*justify-content:\s*flex-en
 assert.match(source, /\.dsh-note-sendBtn\s*\{[^}]*border-radius:\s*var\(--dsw-radius-md/,
   'and is a rectangle, not a circle');
 assert.match(source, /\.dsh-note-toolNote\s*\{/, 'the toolbar can carry the inherited count');
+// The OS menu scrolls a list that opens at the window's foot; the in-page
+// picker opens toward the room and shows the whole list.
+assert.match(source, /\.dsh-note-model, \.dsh-note-model::picker\(select\) \{ appearance: base-select; \}/,
+  'the model and effort menus open in the page');
+assert.match(source, /\.dsh-note-model::picker\(select\)\s*\{[^}]*position-try-order:\s*most-block-size;\s*max-block-size:\s*stretch/,
+  'on the side with the most room, as tall as that side');
+assert.match(source, /\.dsh-note-model \{[^}]*overflow: hidden/, 'a long name is clipped to its menu, not painted over Send');
 
 // The composer copies the host composer's card and its send button.
 assert.match(source, /\.dsh-note-composer\s*\{[^}]*font-size:\s*var\(--dsh-content-font-size, 14px\)/,
@@ -940,5 +966,266 @@ assert.match(
   /\.dsh-note-sideBody\[data-dsh-sidechat-collapsed\]\s*\[data-dsh-sidechat-inherited\]\s*\{\s*display:\s*none;\s*\}/,
   'the inherited prefix has a collapse rule',
 );
+
+// ── the pending composer's model, put on the fork before its first message ─
+{
+  const { ModelPick, pendingModel, sideChatParams } = plugin.__test;
+  const groups = [
+    { id: 'ds', name: 'DeepSeek', models: [
+      { id: 'chat', name: 'Chat', reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'low' } },
+      { id: 'reasoner', name: 'Reasoner', reasoning: { efforts: [{ id: 'high', name: 'High' }], defaultEffort: 'high' } },
+      { id: 'odd', name: 'Odd', reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }], defaultEffort: 'medium' } },
+    ] },
+    { id: 'other', name: 'Other', models: [{ id: 'plain', name: 'Plain' }] },
+    { id: 'open', name: 'Open', models: [{ id: 'free', name: 'Free', reasoning: { efforts: [{ id: 'max', name: 'Max' }] } }] },
+  ];
+  const main = { provider: 'ds', model: 'chat', reasoningEffort: 'high' };
+  const plain = { provider: 'other', model: 'plain' };
+  const gone = { provider: 'gone', model: 'x' };
+  const state = (current, list = groups) => ({ current, groups: list, failures: [], status: 'ready', pending: null, error: null, routable: true });
+  const directory = (snapshot, select) => ({
+    store: { subscribe: () => () => {}, getSnapshot: () => snapshot },
+    load: () => Promise.resolve(snapshot),
+    select: select ?? (() => Promise.resolve({ ok: true })),
+  });
+
+  assert.deepEqual(pendingModel({ model: null }, state(main)), main, 'nothing picked ⇒ the main chat\'s model');
+  assert.deepEqual(pendingModel({ model: plain }, state(main)), plain, 'a pick wins');
+  assert.deepEqual(pendingModel({ model: gone }, state(main)), gone,
+    'a pick the catalog lost stays as picked, never swapped for the main chat\'s model');
+  assert.deepEqual(pendingModel({ model: gone }, state(main, [])), gone, 'nor dropped while the catalog is empty');
+  assert.equal(pendingModel({ model: null }, state(null)), null, 'no model anywhere ⇒ the fork stays as forked');
+  assert.equal(pendingModel({ model: null }, state(gone)), null, 'nor is a main-chat model the catalog lost sent');
+  assert.deepEqual(pendingModel({ model: { ...main, reasoningEffort: 'ultra' } }, state(main)), { provider: 'ds', model: 'chat' },
+    'an effort the model no longer lists is dropped for its default');
+
+  // A fragment: the model menu, then the effort menu when the model has levels.
+  const picked = [];
+  const pick = (current, entry = { model: null, busy: false }, list = groups) => ModelPick({
+    directory: directory(state(current, list)), entry, t: (key) => key, onPick: (model) => picked.push(model),
+  });
+  const valuesOf = (menu) => menu.children[0].filter((option) => option !== null).map((option) => option.props.value);
+  const [models, efforts] = pick(main).children;
+  assert.equal(models.type, 'select', 'the pending composer offers a model menu');
+  assert.equal(models.props.value, JSON.stringify(['ds', 'chat']), 'showing the main chat\'s model until something is picked');
+  assert.deepEqual(models.children[0].slice(1).map((group) => group.props.label), ['DeepSeek', 'Other', 'Open'], 'grouped by provider');
+  assert.equal(models.children[0][0], null, 'with no placeholder while a model shows');
+  assert.equal(efforts.type, 'select', 'and an effort menu beside it');
+  assert.equal(efforts.props.value, 'high', 'showing the main chat\'s effort');
+  assert.deepEqual(valuesOf(efforts), ['low', 'high'], 'offering that model\'s levels');
+  assert.equal(pick({ provider: 'ds', model: 'chat' }).children[1].props.value, 'low',
+    'a main chat that names no effort shows its model\'s default, the one it runs at');
+
+  models.props.onChange({ target: { value: JSON.stringify(['ds', 'reasoner']) } });
+  pick({ ...main, reasoningEffort: 'low' }).children[0].props.onChange({ target: { value: JSON.stringify(['ds', 'reasoner']) } });
+  models.props.onChange({ target: { value: JSON.stringify(['other', 'plain']) } });
+  efforts.props.onChange({ target: { value: 'low' } });
+  assert.deepEqual(picked, [
+    { provider: 'ds', model: 'reasoner' },
+    { provider: 'ds', model: 'reasoner' },
+    plain,
+    { provider: 'ds', model: 'chat', reasoningEffort: 'low' },
+  ], 'a model switch starts on the new model\'s default effort, as in the main chat, whatever was shown; an effort pick keeps the model');
+  assert.equal(pick(main, { model: { provider: 'ds', model: 'reasoner' }, busy: false }).children[1].props.value, 'high',
+    'and the effort menu shows that default');
+
+  assert.equal(pick(main, { model: plain, busy: false }).children[1], null, 'a model without levels shows no effort menu');
+  const open = pick(main, { model: { provider: 'open', model: 'free' }, busy: false }).children[1];
+  assert.equal(open.props.value, '', 'a model that names no default effort leaves it to the provider');
+  assert.deepEqual(valuesOf(open), ['', 'max'], 'which the menu offers as a choice of its own');
+  open.props.onChange({ target: { value: '' } });
+  assert.deepEqual(picked.at(-1), { provider: 'open', model: 'free' }, 'and picking it names no effort');
+  const odd = pick({ provider: 'ds', model: 'odd' }).children[1];
+  assert.equal(odd.props.value, '', 'a default effort the model does not list is not shown as one it does');
+  assert.deepEqual(valuesOf(odd), ['', 'low', 'high'], 'so every listed level stays pickable');
+
+  const [unset, noEffort] = pick(null).children;
+  assert.equal(unset.props.value, '', 'with no model anywhere the menu says so');
+  assert.equal(unset.children[0][0].props.disabled, true, 'through a placeholder that cannot be picked back');
+  assert.equal(unset.children[0][0].children[0], 'sideChat.modelDefault', 'naming the main chat\'s');
+  assert.equal(noEffort, null, 'and offers no effort');
+  const [lost, lostEffort] = pick(main, { model: gone, busy: false }).children;
+  assert.equal(lost.props.value, '', 'a pick the catalog lost is not shown as another model');
+  assert.equal(lost.children[0][0].children[0], 'sideChat.modelGone', 'it says the pick is unavailable');
+  assert.equal(lostEffort, null, 'with no effort to pick');
+  assert.ok(pick(main, { model: null, busy: true }).children.every((menu) => menu.props.disabled), 'both lock while the page sends');
+  assert.equal(pick(main, undefined, []), null, 'an empty catalog shows no menu');
+
+  // What a fork inherited is its own history's `modelSelection` projection.
+  const { inheritedModel } = plugin.__test;
+  const face = (next) => {
+    const listeners = new Set();
+    let view = next === undefined ? undefined : { lastUsed: next, next };
+    return {
+      listeners,
+      fold: (selection) => { view = { lastUsed: selection, next: selection }; for (const fn of Array.from(listeners)) fn(); },
+      getSnapshot: () => view,
+      subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn); },
+    };
+  };
+  const projected = (projection) => ({ projections: { faceOf: (key) => (key === 'modelSelection' ? projection : undefined) } });
+  {
+    assert.deepEqual(await inheritedModel(projected(face(main)), 0), main, 'a folded fork reads its inherited model at once');
+    assert.equal(await inheritedModel(projected(face()), 0), null, 'one not folded yet is unknown when there is no time to wait');
+    assert.equal(await inheritedModel(projected(face(null)), 0), null, 'and an empty fold is not taken for the host default');
+    assert.equal(await inheritedModel({}, 50), null, 'a session without projections is unknown, without waiting');
+    assert.equal(await inheritedModel(projected(undefined), 50), null, 'as is one without this projection');
+    const later = face();
+    setTimeout(() => later.fold(plain), 5);
+    assert.deepEqual(await inheritedModel(projected(later), 1000), plain, 'a wait sees the history fold a moment later');
+    assert.equal(later.listeners.size, 0, 'and lets go of it');
+    const never = face();
+    const begun = Date.now();
+    assert.equal(await inheritedModel(projected(never), 30), null, 'a history that never folds ends the wait when it runs out');
+    assert.ok(Date.now() - begun >= 25, 'not before');
+    assert.equal(never.listeners.size, 0, 'and lets go of it too');
+  }
+
+  const originalRetain = ctx.sessions.retain;
+  const originalGet = ctx.get;
+  const realSetTimeout = globalThis.setTimeout;
+  const calls = [];
+  try {
+    // The hand-over holds the child for 30 s; that timer must not keep the check alive.
+    globalThis.setTimeout = (fn, ms, ...rest) => {
+      const timer = realSetTimeout(fn, ms, ...rest);
+      if (ms > 1000) timer.unref();
+      return timer;
+    };
+    let forkFace = face(main);
+    ctx.get = (name) => (name === 'uiWorkspace' ? { archiveSession: async (sessionId) => { calls.push(['archive', sessionId]); } } : undefined);
+    ctx.sessions.fork = async ({ sessionId }) => { calls.push(['fork', sessionId]); return 'model-child'; };
+    ctx.sessions.retain = () => ({
+      ready: Promise.resolve(),
+      binding: { session: {
+        ...projected(forkFace),
+        rename: async () => { calls.push(['rename']); return { ok: true }; },
+        beginSubmission: () => ({ requestId: 'request-1', abandon() {} }),
+        prompt: async (content) => { calls.push(['prompt', content[0].text]); return { ok: true }; },
+      } },
+      release: () => {},
+    });
+    // The fork's directory: the shared catalog, and the select that puts a model on it.
+    const childDirectory = (result) => directory(state(null), async (selection) => { calls.push(['select', selection]); return result; });
+    // `inherits: null` is a fork whose session has no modelSelection projection.
+    const send = async (id, seed, { inherits = face(main), result = { ok: true }, child = childDirectory(result) } = {}) => {
+      calls.length = 0;
+      forkFace = inherits;
+      if (child === null) directories.delete('model-child');
+      else directories.set('model-child', child);
+      injected.chats.ensure(id, { index: 1, draft: 'hello', ...seed });
+      injected.sendSideChat(id);
+      // Settled once the page is no longer busy, sent or not.
+      for (let tries = 0; injected.chats.get(id).busy && tries < 200; tries += 1) await new Promise((resolve) => realSetTimeout(resolve, 1));
+      assert.equal(injected.chats.get(id).busy, false, `${id} settled`);
+      return injected.chats.get(id);
+    };
+    const steps = () => calls.map((call) => call[0]);
+    directories.set('model-parent', directory(state(main)));
+    await send('note-picked', { parentId: 'model-parent', model: plain });
+    assert.deepEqual(calls, [['fork', 'model-parent'], ['rename'], ['select', plain], ['prompt', 'hello']],
+      'a pick that differs is on the fork before its first message goes out');
+    await send('note-default', { parentId: 'model-parent', model: null });
+    assert.deepEqual(steps(), ['fork', 'rename', 'prompt'],
+      'nothing picked and the fork already on the main chat\'s model: nothing is written, so the host default stays');
+    await send('note-same', { parentId: 'model-parent', model: { provider: 'ds', model: 'chat', reasoningEffort: 'low' } },
+      { inherits: face({ provider: 'ds', model: 'chat' }) });
+    assert.deepEqual(steps(), ['fork', 'rename', 'prompt'], 'naming the effort the fork already runs at by default writes nothing either');
+
+    // A pick waits for the fork's history to fold, rather than read an empty
+    // one and write anyway; with nothing picked, an unfolded fork is left be.
+    {
+      const folding = face();
+      realSetTimeout(() => folding.fold(plain), 5);
+      await send('note-folding', { parentId: 'model-parent', model: plain }, { inherits: folding });
+      assert.deepEqual(steps(), ['fork', 'rename', 'prompt'], 'a pick the fork turns out to have inherited is not written');
+      await send('note-unfolded', { parentId: 'model-parent', model: null }, { inherits: face() });
+      assert.deepEqual(steps(), ['fork', 'rename', 'prompt'], 'nothing picked and the history not folded yet: the send is not held up');
+      await send('note-unprojected', { parentId: 'model-parent', model: plain }, { inherits: null });
+      assert.deepEqual(steps(), ['fork', 'rename', 'select', 'prompt'], 'a pick with no history to compare against is set regardless');
+    }
+
+    directories.set('model-parent', directory(state({ provider: 'ds', model: 'reasoner' })));
+    await send('note-moved', { parentId: 'model-parent', model: null });
+    assert.deepEqual(calls[2], ['select', { provider: 'ds', model: 'reasoner' }],
+      'a main chat switched since its last turn: the fork takes the main chat\'s model as the menu showed it');
+    const moveRefused = await send('note-moved-refused', { parentId: 'model-parent', model: null }, { result: { ok: false, error: { message: 'busy' } } });
+    assert.deepEqual(steps(), ['fork', 'rename', 'select', 'prompt'],
+      'with nothing picked a refused switch does not stop the send: the fork carries on with what it inherited');
+    assert.equal(moveRefused.error, '', 'and nothing is reported as failed');
+    await send('note-moved-unreachable', { parentId: 'model-parent', model: null }, { child: null });
+    assert.deepEqual(steps(), ['fork', 'rename', 'prompt'], 'nor does a fork whose directory cannot be had');
+    directories.set('model-parent', directory(state(main)));
+    await send('note-offscreen', { parentId: 'no-directory', model: null });
+    assert.deepEqual(steps(), ['fork', 'rename', 'prompt'], 'without the main chat\'s directory and no pick, the fork stays as forked');
+    await send('note-offscreen-pick', { parentId: 'no-directory', model: { ...plain, reasoningEffort: 'ultra' } });
+    assert.deepEqual(calls[2], ['select', plain],
+      'a pick sent without the main chat\'s directory is still checked against the catalog the fork shares');
+    const lostPick = await send('note-lost', { parentId: 'model-parent', model: gone }, { result: { ok: false, error: { message: 'model unavailable' } } });
+    assert.deepEqual(calls[2], ['select', gone], 'a pick the catalog lost goes to the host as picked, not as another model');
+    assert.deepEqual(steps().slice(3), ['archive'], 'which refuses it: nothing is sent, and the fork is archived again');
+    assert.equal(lostPick.error, 'sideChat.modelFailed:{"message":"model unavailable"}', 'the page says it was the model, and why');
+    assert.equal(lostPick.childId, null, 'and stays a pending page');
+    assert.equal(lostPick.draft, 'hello', 'with its draft');
+    const unreachable = await send('note-unreachable', { parentId: 'model-parent', model: plain }, { child: null });
+    assert.deepEqual(steps(), ['fork', 'rename', 'archive'],
+      'a fork whose model cannot be set sends nothing rather than run on another model');
+    assert.match(unreachable.error, /^sideChat\.modelFailed:.*resolved no scope/, 'and the page says why');
+    modelService.withdraw();
+    try {
+      const serviceless = await send('note-serviceless', { parentId: 'no-directory', model: plain });
+      assert.deepEqual(steps(), ['fork', 'rename', 'archive'],
+        'a pick with the model service gone is not dropped for the main chat\'s model: nothing is sent');
+      assert.equal(serviceless.error, 'sideChat.modelFailed:{"message":"sideChat.modelService"}',
+        'and the page says so in its own words');
+      await send('note-serviceless-default', { parentId: 'no-directory', model: null });
+      assert.deepEqual(steps(), ['fork', 'rename', 'prompt'], 'with nothing picked the fork simply stays on the main chat\'s model');
+    } finally {
+      modelService.provide();
+    }
+  } finally {
+    ctx.sessions.retain = originalRetain;
+    ctx.get = originalGet;
+    delete ctx.sessions.fork;
+    globalThis.setTimeout = realSetTimeout;
+  }
+
+  // The page carries the menu only while the main chat's directory is there,
+  // and redraws as the model service and the main chat's binding come and go.
+  const rowOf = (tree) => find(tree, (node) => node.props.className === 'dsh-note-composerRow');
+  const menuOf = (parentId, tabId) => rowOf(panelOf({ id: `note-${tabId}`, parentId, index: 1 }, parentId, tabId)).children[0];
+  subscribed.clear();
+  const withMenu = menuOf('model-parent', 'tab-menu');
+  assert.equal(withMenu.type, ModelPick, 'the pending composer shows the model menu left of Send');
+  assert.equal(withMenu.props.directory, directories.get('model-parent'), 'over the main chat\'s directory');
+  assert.ok(subscribed.has(injected.subscribeModels), 'the page redraws when the model service comes or goes');
+  assert.ok(subscribed.has(ctx.sessions.retainInfo('model-parent').subscribe),
+    'and when the main chat is retained or its scope replaced');
+  let told = 0;
+  const stop = injected.subscribeModels(() => { told += 1; });
+  modelService.withdraw();
+  assert.equal(menuOf('model-parent', 'tab-menu'), null, 'none while the model service is gone');
+  modelService.provide();
+  stop();
+  assert.equal(told, 2, 'each change reaches the page\'s subscription');
+  assert.equal(menuOf('model-parent', 'tab-menu').type, ModelPick, 'and back once it is provided again');
+  assert.equal(menuOf('no-directory', 'tab-nomenu'), null, 'none for a main chat with no binding yet');
+  directories.set('late-parent', directory(state(main)));
+  assert.equal(menuOf('late-parent', 'tab-late').type, ModelPick, 'and the menu once its binding arrives');
+
+  // Reset starts the page over from the main chat as it is now, its model included.
+  injected.chats.ensure('note-reset-model', { parentId: 'model-parent', index: 1, model: plain });
+  await injected.resetSideChat('note-reset-model');
+  assert.equal(injected.chats.get('note-reset-model').model, null, 'Reset drops the pick, so the page follows the main chat again');
+
+  // The pick travels with the page: in its record and in its navigation params.
+  assert.deepEqual(sideChatParams({ id: 'n', parentId: 'p', index: 1, childId: null, boundaryTurn: null, first: '', inherited: null, draft: '', model: plain }).model,
+    plain, 'a page\'s params carry its pick');
+  panelOf({ id: 'note-param-model', parentId: 'parent-1', index: 2, model: plain }, 'parent-1', 'tab-param-model');
+  assert.deepEqual(injected.chats.get('note-param-model').model, plain, 'a page opened from its params keeps the pick');
+  storage.set('dsh-annotate-sidechat:page:tab-model', JSON.stringify({ id: 'note-model-kept', parentId: 'parent-1', index: 9, model: plain }));
+  panelOf(undefined, 'parent-1', 'tab-model');
+  assert.deepEqual(injected.chats.get('note-model-kept').model, plain, 'a reloaded page keeps the model it was given');
+}
 
 console.log('ok — dsh-annotate-sidechat client bundle');

@@ -59,12 +59,19 @@ window.__ModuleLoader__.load({
       'sideChat.delete': '删除',
       'sideChat.deleteFailed': '删除失败：{message}',
       'sideChat.deleteHint': '归档当前对话并关闭本页',
+      'sideChat.effort': '侧边对话使用的推理强度',
+      'sideChat.effortDefault': '默认强度',
       'sideChat.hideInherited': '隐藏继承内容',
       'sideChat.inheritEmpty': '主对话还没有已完成的内容',
       'sideChat.inheritEarlier': '更早的轮次未在此加载',
       'sideChat.inheritMore': '较长的消息未在此预览',
       'sideChat.inherited': '继承 {turns} 轮',
       'sideChat.inheritedOne': '继承 {turns} 轮',
+      'sideChat.model': '侧边对话使用的模型',
+      'sideChat.modelDefault': '与主对话相同',
+      'sideChat.modelFailed': '无法设置侧边对话的模型，未发送：{message}',
+      'sideChat.modelGone': '所选模型当前不可用',
+      'sideChat.modelService': '模型服务当前不可用',
       'sideChat.new': '新建',
       'sideChat.newHint': '再开一个侧边对话',
       'sideChat.pendingPlaceholder': '输入内容，发送后新建侧边对话…',
@@ -106,12 +113,19 @@ window.__ModuleLoader__.load({
       'sideChat.delete': 'Delete',
       'sideChat.deleteFailed': 'Delete failed: {message}',
       'sideChat.deleteHint': 'Archive this chat and close this page',
+      'sideChat.effort': 'Reasoning effort for this side chat',
+      'sideChat.effortDefault': 'Default effort',
       'sideChat.hideInherited': 'Hide inherited',
       'sideChat.inheritEmpty': 'The main chat has nothing completed yet',
       'sideChat.inheritEarlier': 'Earlier turns not loaded here',
       'sideChat.inheritMore': 'Long messages not previewed here',
       'sideChat.inherited': '{turns} turns inherited',
       'sideChat.inheritedOne': '{turns} turn inherited',
+      'sideChat.model': 'Model for this side chat',
+      'sideChat.modelDefault': 'Same as main chat',
+      'sideChat.modelFailed': 'The side chat\'s model could not be set, so nothing was sent: {message}',
+      'sideChat.modelGone': 'Picked model unavailable',
+      'sideChat.modelService': 'model selection is unavailable right now',
       'sideChat.new': 'New',
       'sideChat.newHint': 'Open another side chat',
       'sideChat.pendingPlaceholder': 'Type a message; sending creates the side chat…',
@@ -190,16 +204,8 @@ window.__ModuleLoader__.load({
 
     function writePage(tabId, entry) {
       if (typeof tabId !== 'string' || tabId === '' || typeof entry.id !== 'string' || entry.id === '') return;
-      const record = {
-        id: entry.id,
-        parentId: entry.parentId,
-        index: entry.index,
-        ...entry.childId === null ? {} : { childId: entry.childId },
-        ...entry.boundaryTurn === null ? {} : { boundaryTurn: entry.boundaryTurn },
-        ...entry.first === '' ? {} : { first: entry.first },
-        ...entry.inherited === null ? {} : { inherited: entry.inherited },
-        ...entry.draft === '' ? {} : { draft: entry.draft },
-      };
+      // The record and the page's navigation params carry the same state.
+      const record = sideChatParams(entry);
       pageRecords.set(tabId, record);
       try { window.localStorage.setItem(PAGE_PREFIX + tabId, JSON.stringify(record)); } catch (error) { /* the page just loses its memory */ }
     }
@@ -294,6 +300,124 @@ window.__ModuleLoader__.load({
         const input = conversation.input.for(scope);
         return input !== undefined && input !== null && typeof input.setDraft === 'function' ? input : undefined;
       } catch (error) { return undefined; }
+    }
+
+    /** `ctx.modelDirectories`, got through a scope that injects it and the
+     *  `remote.session` its `directoryFor` reads; undefined until then. A store,
+     *  so a page drawn before it arrives, or before it is provided anew, redraws. */
+    const modelDirectories = createStore(undefined);
+
+    /** One session's host model directory (catalog + selection), or undefined. */
+    function directoryOf(sessionId) {
+      const resolver = modelDirectories.getSnapshot();
+      try { return resolver === undefined ? undefined : resolver.directoryFor(sessionId); } catch (error) { return undefined; }
+    }
+
+    /** The catalog model `selection` names, or undefined when the catalog lacks it. */
+    function catalogModel(groups, selection) {
+      if (selection === null || selection === undefined) return undefined;
+      const group = groups.find((each) => each.id === selection.provider);
+      return group === undefined ? undefined : group.models.find((each) => each.id === selection.model);
+    }
+
+    /** The reasoning levels a catalog model offers; none without reasoning metadata. */
+    function effortsOf(model) {
+      return model === undefined || model.reasoning === undefined ? [] : model.reasoning.efforts;
+    }
+
+    /** Whether a catalog model lists the effort `id`: the one rule for which efforts count. */
+    function lists(model, id) {
+      return id !== undefined && effortsOf(model).some((level) => level.id === id);
+    }
+
+    /**
+     * The effort `selection` runs its catalog `model` at: the one it names, else
+     * the model's default, whichever the model lists. Undefined leaves the
+     * provider's own default in charge.
+     */
+    function effortOf(model, selection) {
+      const fallback = model === undefined || model.reasoning === undefined ? undefined : model.reasoning.defaultEffort;
+      return [selection.reasoningEffort, fallback].find((id) => lists(model, id));
+    }
+
+    /** Whether two selections run the same model at the same effort; naming the default effort changes nothing. */
+    function sameModel(groups, left, right) {
+      if (left === null || right === null || left.provider !== right.provider || left.model !== right.model) return false;
+      const model = catalogModel(groups, left);
+      return model === undefined ? left.reasoningEffort === right.reasoningEffort : effortOf(model, left) === effortOf(model, right);
+    }
+
+    /**
+     * The model and effort a pending page sends with: its own pick, else the
+     * main chat's current selection. An effort the catalog model no longer lists
+     * is dropped, so the model's default applies. A pick the catalog lacks stays
+     * as picked, for the host to take or refuse, never swapped for another
+     * model; the main chat's selection counts only while the catalog has it.
+     * Null leaves the fork as forked, on the main chat's model.
+     */
+    function pendingModel(entry, state) {
+      const selection = entry.model ?? state.current;
+      const model = catalogModel(state.groups, selection);
+      if (model === undefined) return entry.model;
+      const effort = lists(model, selection.reasoningEffort) ? selection.reasoningEffort : undefined;
+      return { provider: selection.provider, model: selection.model, ...effort === undefined ? {} : { reasoningEffort: effort } };
+    }
+
+    /** How long a send with a model pick waits for the fork's copied history to fold before setting the pick regardless. */
+    const MODEL_SETTLE_MS = 2000;
+
+    /**
+     * What a fresh fork runs on: the selection its copied history last used or
+     * picked (`next`), once the host has folded that history into the session's
+     * `modelSelection` projection. An empty fold does not count. Null when it is
+     * not folded within `ms`, or the session has no such projection.
+     */
+    function inheritedModel(session, ms) {
+      let face;
+      try { face = session.projections.faceOf('modelSelection'); } catch (error) { return Promise.resolve(null); }
+      if (face === undefined || face === null || typeof face.getSnapshot !== 'function') return Promise.resolve(null);
+      const read = () => {
+        const view = face.getSnapshot();
+        return view === undefined || view === null ? null : view.next ?? null;
+      };
+      return new Promise((resolve) => {
+        if (read() !== null || ms <= 0) { resolve(read()); return; }
+        let off = () => {};
+        const timer = setTimeout(() => { off(); resolve(read()); }, ms);
+        off = face.subscribe(() => {
+          if (read() === null) return;
+          off();
+          clearTimeout(timer);
+          resolve(read());
+        });
+      });
+    }
+
+    /**
+     * Put `model` on a fresh fork before its first message, unless the fork
+     * already runs it: a selection is also saved as the host's default for new
+     * chats, so an unchanged one is not written. The pick is checked against the
+     * catalog the fork shares with every session, in case the main chat's was
+     * out of reach at send.
+     *
+     * A page `picked` a model: it waits for the fork's history, and is set
+     * regardless once that wait runs out. Nothing picked: `model` is the main
+     * chat's, which the fork already carries on with unless the main chat
+     * switched since its last turn, so a fork whose history is not folded yet is
+     * left as it is rather than held up.
+     * @throws when the model cannot be set; a `reason` of 'service' means the
+     *   model service is gone.
+     */
+    async function applyModel(session, childId, model, picked) {
+      const resolver = modelDirectories.getSnapshot();
+      if (resolver === undefined) throw Object.assign(new Error('model selection is unavailable'), { reason: 'service' });
+      const directory = resolver.directoryFor(childId);
+      const inherited = await inheritedModel(session, picked ? MODEL_SETTLE_MS : 0);
+      const groups = directory.store.getSnapshot().groups;
+      const wanted = pendingModel({ model: model }, { groups: groups, current: null });
+      if (inherited === null ? !picked : sameModel(groups, inherited, wanted)) return;
+      const selected = await directory.select(wanted);
+      if (!selected.ok) throw new Error(selected.error.message);
     }
 
     /**
@@ -598,6 +722,7 @@ window.__ModuleLoader__.load({
         first: '',
         inherited: null,
         draft: '',
+        model: null,
         busy: false,
         error: '',
         focusToken: 0,
@@ -1068,6 +1193,7 @@ window.__ModuleLoader__.load({
         ...entry.first === '' ? {} : { first: entry.first },
         ...entry.inherited === null ? {} : { inherited: entry.inherited },
         ...entry.draft === '' ? {} : { draft: entry.draft },
+        ...entry.model === null ? {} : { model: entry.model },
       };
     }
 
@@ -1212,9 +1338,11 @@ window.__ModuleLoader__.load({
      * send `text` as its first message. This is the only place a side chat is
      * created, which is why nothing shows up in the session list before a
      * composer is sent.
+     * @param model - the selection the child sends with; null keeps the fork's own.
+     * @param picked - whether the page picked `model`, rather than showing the main chat's.
      * @returns the child session id.
      */
-    async function createSideChat(ctx, parentId, text, label) {
+    async function createSideChat(ctx, parentId, text, label, model, picked) {
       // No explicit boundary: the host cuts at the main chat's last completed
       // turn, so a side chat never inherits a turn that is still being written.
       const childId = await ctx.sessions.fork({ sessionId: parentId });
@@ -1229,6 +1357,16 @@ window.__ModuleLoader__.load({
         // generation from the first message.
         const renamed = await session.rename(sideChatTitle(label, info.title, info.cwd));
         if (!renamed.ok) throw new Error(renamed.error.message);
+        if (model !== null) {
+          try {
+            await applyModel(session, childId, model, picked);
+          } catch (error) {
+            // A pick that cannot be set stops the send, marked so the page can
+            // say so. With nothing picked the fork already carries on with the
+            // main chat's model, and the send goes ahead.
+            if (picked) throw Object.assign(error instanceof Error ? error : new Error(String(error)), { model: true });
+          }
+        }
         const submission = session.beginSubmission({ mode: 'queue', text: text, attachments: [] });
         const sent = await session.prompt([{ type: 'text', text: text }], 'queue', undefined, submission.requestId);
         if (!sent.ok) {
@@ -1271,7 +1409,9 @@ window.__ModuleLoader__.load({
       const index = entry.index > 0 ? entry.index : nextSideChatIndex(ctx, chats, entry.parentId);
       chats.patch(id, { busy: true, error: '', index: index });
       try {
-        const childId = await createSideChat(ctx, entry.parentId, text, t('sideChat.chip', { index: index }));
+        const directory = directoryOf(entry.parentId);
+        const model = directory === undefined ? entry.model : pendingModel(entry, directory.store.getSnapshot());
+        const childId = await createSideChat(ctx, entry.parentId, text, t('sideChat.chip', { index: index }), model, entry.model !== null);
         const boundaryTurn = inheritedTurnBoundary(ctx, entry.parentId, childId);
         // A quote sent here while the chat was being created was appended after
         // the text that went out; it moves on to the new chat's own composer.
@@ -1284,7 +1424,9 @@ window.__ModuleLoader__.load({
           chats.patch(id, { error: t('sideChat.quoteFailed') });
         }
       } catch (error) {
-        chats.patch(id, { busy: false, error: String((error && error.message) || error) });
+        const message = String((error && error.message) || error);
+        const reason = error && error.reason === 'service' ? t('sideChat.modelService') : message;
+        chats.patch(id, { busy: false, error: error && error.model === true ? t('sideChat.modelFailed', { message: reason }) : message });
       }
     }
 
@@ -1316,6 +1458,7 @@ window.__ModuleLoader__.load({
         boundaryTurn: null,
         first: '',
         draft: '',
+        model: null,
         busy: false,
         error: '',
         collapsed: true,
@@ -1399,8 +1542,9 @@ window.__ModuleLoader__.load({
         void openSideChatPage(ctx, chats.create(parentId));
         return;
       }
-      // Its send forks from the main chat as it is now: preview that, as Reset does.
-      const fresh = mainTranscript(parentId) === null ? {} : { inherited: captureInherited(ctx.sessions, parentId) };
+      // Its send forks from the main chat as it is now: preview that, and drop
+      // an earlier model pick so it follows the main chat's, as Reset does.
+      const fresh = { model: null, ...mainTranscript(parentId) === null ? {} : { inherited: captureInherited(ctx.sessions, parentId) } };
       if (chats.idOfTab(unused.tabId) === undefined) writePage(unused.tabId, { ...readPage(unused.tabId), ...fresh });
       revealSideChat(ctx, unused.tabId);
       const id = chats.idOfTab(unused.tabId);
@@ -1615,6 +1759,38 @@ window.__ModuleLoader__.load({
   flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 12px;
   padding: 2px 8px 6px; min-width: 0;
 }
+/* The model and effort choices read like the host composer's model control:
+   plain caption text left of Send, with a hover fill and no box. */
+.dsh-note-model {
+  flex: 0 1 auto; min-width: 0; max-width: 50%; height: 28px; padding: 0 4px; cursor: pointer;
+  font: inherit; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  color: var(--dsw-alias-label-secondary);
+  background: transparent; border: none; border-radius: var(--dsw-radius-sm, 6px);
+}
+.dsh-note-model:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
+.dsh-note-model:focus-visible { outline: 2px solid var(--dsw-alias-state-business-primary); }
+.dsh-note-model:disabled { opacity: 0.4; cursor: default; }
+/* The OS menu keeps the picked item over the control and scrolls the rest, and
+   the composer sits at the window's foot. A customizable select (Chromium)
+   opens its list in the page instead, on the side with the most room and as
+   tall as that side, so the whole catalog shows at once; other browsers keep
+   the OS menu. The list wears the host's menu surface. */
+.dsh-note-model, .dsh-note-model::picker(select) { appearance: base-select; }
+.dsh-note-model::picker(select) {
+  position-try-order: most-block-size; max-block-size: stretch;
+  padding: 4px; border: none; border-radius: var(--dsw-radius-panel, 12px);
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-specific-menu, var(--dsw-alias-bg-layer-1));
+  backdrop-filter: var(--dsw-menu-backdrop-filter, blur(40px) saturate(150%));
+  box-shadow: var(--dsw-elevation-prominent);
+}
+.dsh-note-model option {
+  padding: 5px 8px; border-radius: var(--dsw-radius-md, 8px);
+  font-size: 13px; line-height: 20px; white-space: nowrap;
+}
+.dsh-note-model option:hover, .dsh-note-model option:focus-visible { background: var(--dsw-alias-interactive-bg-hover); outline: none; }
+.dsh-note-model optgroup { font-size: 12px; font-weight: 400; color: var(--dsw-alias-label-tertiary); }
+.dsh-note-model optgroup option { color: var(--dsw-alias-label-primary); }
 .dsh-note-sendBtn {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   height: 32px; padding: 0 14px; cursor: pointer;
@@ -1952,6 +2128,8 @@ window.__ModuleLoader__.load({
         inherited: source !== null && source.inherited !== null && typeof source.inherited === 'object'
           ? source.inherited : null,
         draft: source !== null && typeof source.draft === 'string' ? source.draft : '',
+        model: source !== null && source.model !== null && typeof source.model === 'object'
+          && typeof source.model.provider === 'string' && typeof source.model.model === 'string' ? source.model : null,
       });
       props.chats.bindTab(tabId, id);
       const entry = React.useSyncExternalStore(
@@ -1979,6 +2157,14 @@ window.__ModuleLoader__.load({
       const origin = entry.inherited;
       const originHtml = origin === null ? '' : origin.html;
       const shownHtml = React.useMemo(() => inertMarkup(originHtml), [originHtml]);
+      // The main chat's model directory, for the pending composer's menus:
+      // looked up once per main chat and model service, not on every keystroke.
+      // Keyed on the main chat's binding as well: it appears once the chat is
+      // retained and is replaced along with its scope, and each brings a directory.
+      const models = React.useSyncExternalStore(props.subscribeModels, props.models);
+      const parentBinding = useBinding(props.sessions, entry.parentId);
+      const directory = React.useMemo(() => (hasChild || models === undefined || parentBinding === undefined
+        ? undefined : props.modelDirectory(entry.parentId)), [hasChild, models, parentBinding, entry.parentId]);
       const cwd = typeof bag.cwd === 'string' ? bag.cwd : undefined;
       const [reference, setReference] = React.useState(null);
       const [failed, setFailed] = React.useState(false);
@@ -2168,6 +2354,12 @@ window.__ModuleLoader__.load({
             },
           }),
           h('div', { className: 'dsh-note-composerRow' },
+            directory === undefined ? null : h(ModelPick, {
+              directory: directory,
+              entry: entry,
+              t: t,
+              onPick: (model) => props.chats.patch(id, { model: model }),
+            }),
             h('button', {
               className: 'dsh-note-sendBtn', type: 'button',
               title: t('sideChat.send'),
@@ -2185,6 +2377,72 @@ window.__ModuleLoader__.load({
         ),
         entry.error === '' ? null : h('div', { className: 'dsh-note-error' }, entry.error),
       );
+    }
+
+    const NO_SUBSCRIPTION = () => () => {};
+
+    /**
+     * One session's live binding, re-read whenever the host retains or retires
+     * the session (`sessions.retainInfo`), so a page notices the chat's scope
+     * arriving or being replaced. Without that source it is read per render.
+     */
+    function useBinding(sessions, sessionId) {
+      const source = sessionId === '' || typeof sessions.retainInfo !== 'function' ? undefined : sessions.retainInfo(sessionId);
+      return React.useSyncExternalStore(source === undefined ? NO_SUBSCRIPTION : source.subscribe, () => {
+        try { return sessionId === '' ? undefined : sessions.binding(sessionId); } catch (error) { return undefined; }
+      });
+    }
+
+    /**
+     * The pending composer's model and reasoning-effort choice. The catalog is
+     * the main chat's directory (one host catalog for every session), read only:
+     * the pick stays on the page until the send puts it on the fork, so the main
+     * chat keeps its own. Until something is picked both show the main chat's.
+     */
+    function ModelPick(props) {
+      const directory = props.directory;
+      const state = React.useSyncExternalStore(directory.store.subscribe, directory.store.getSnapshot);
+      React.useEffect(() => { directory.load()?.catch(() => { /* the menu stays as it was */ }); }, [directory]);
+      if (state.groups.length === 0) return null;
+      const chosen = pendingModel(props.entry, state);
+      const model = catalogModel(state.groups, chosen);
+      // A pick the catalog lost is said so, not shown as another model.
+      const gone = chosen !== null && model === undefined;
+      const levels = effortsOf(model);
+      const effort = model === undefined ? undefined : effortOf(model, chosen);
+      const keyOf = (provider, id) => JSON.stringify([provider, id]);
+      const select = (label, value, onChange, children) => h('select', {
+        className: 'dsh-note-model',
+        value: value,
+        disabled: props.entry.busy,
+        title: props.t(label),
+        'aria-label': props.t(label),
+        onChange: onChange,
+      }, children);
+      const pickModel = (event) => {
+        const [provider, id] = JSON.parse(event.target.value);
+        // As in the main chat's composer, a new model starts on its own default
+        // effort: naming none is what runs it there.
+        props.onPick({ provider: provider, model: id });
+      };
+      const pickEffort = (event) => {
+        const id = event.target.value;
+        props.onPick({ provider: chosen.provider, model: chosen.model, ...id === '' ? {} : { reasoningEffort: id } });
+      };
+      return h(React.Fragment, null,
+        select('sideChat.model', model === undefined ? '' : keyOf(chosen.provider, chosen.model), pickModel, [
+          model === undefined
+            ? h('option', { key: '', value: '', disabled: true }, props.t(gone ? 'sideChat.modelGone' : 'sideChat.modelDefault'))
+            : null,
+          ...state.groups.map((group) => h('optgroup', { key: group.id, label: group.name },
+            group.models.map((each) => h('option', { key: each.id, value: keyOf(group.id, each.id) }, each.name)))),
+        ]),
+        levels.length === 0 ? null : select('sideChat.effort', effort ?? '', pickEffort, [
+          // No listed effort to show (an adapter that names no default, or one it
+          // does not list): the provider's own default is in charge.
+          effort === undefined ? h('option', { key: '', value: '' }, props.t('sideChat.effortDefault')) : null,
+          ...levels.map((level) => h('option', { key: level.id, value: level.id }, level.name)),
+        ]));
     }
 
     /** The tab chip: which side chat a page is, when several are open. */
@@ -2268,6 +2526,10 @@ window.__ModuleLoader__.load({
         capture: capture,
         sideChatTitle: sideChatTitle,
         nextSideChatIndex: nextSideChatIndex,
+        pendingModel: pendingModel,
+        inheritedModel: inheritedModel,
+        sideChatParams: sideChatParams,
+        ModelPick: ModelPick,
       },
       apply(ctx) {
         ctx.effect(() => ctx.locale.register(NS, { zh: zh, en: en }), 'dsh-annotate-sidechat: dictionaries');
@@ -2301,6 +2563,12 @@ window.__ModuleLoader__.load({
             if (sweep !== undefined) { clearTimeout(sweep); sweep = undefined; }
           };
         }), 'dsh-annotate-sidechat: archived or deleted side chats');
+
+        // The pending composer's model choice, while the host's model directories are up.
+        ctx.effect(() => ctx.inject(['modelDirectories', 'remote', 'remote.session'], (scope) => {
+          modelDirectories.set(scope.get('modelDirectories'));
+          return () => { modelDirectories.set(undefined); };
+        }), 'dsh-annotate-sidechat: model directories');
 
         // The overlay is inert until the conversation has mounted once, so a
         // cold page does not install listeners the host would never feed.
@@ -2345,6 +2613,9 @@ window.__ModuleLoader__.load({
             resetSideChat: (id) => resetSideChat(ctx, chats, id, t),
             deleteSideChat: (tabId) => deleteSideChats(ctx, chats, [tabId], t),
             sendSideChat: (id) => { void submitSideChat(ctx, chats, id, t); },
+            modelDirectory: directoryOf,
+            models: modelDirectories.getSnapshot,
+            subscribeModels: modelDirectories.subscribe,
             recheckBoundary: (id, reference) => recheckBoundary(ctx, chats, id, reference),
             // One stable pair, so a page's subscription never churns.
             childGone: (childId) => !chats.isResetting(childId) && childGone(ctx, childId),

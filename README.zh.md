@@ -47,6 +47,13 @@
 - **发送时才创建。** 发送之前页面只是草稿，不存在任何对话。页面预览它将继承的已完成轮次（超过 4 KB 的消息，
   以及累计超过 24 KB 之后的内容不预览）。发送时在主对话最后一个已完成的轮次 fork，把子对话命名为
   `↳侧<n>·<主对话标题>`（英文界面为 `↳S<n>·…`），并把草稿作为第一条消息发出。失败时这次 fork 会被重新归档。
+- **发送前选模型和推理强度。** `发送` 左边一个菜单按提供方列出宿主的模型，另一个列出所选模型的推理强度，两者默认都和主对话
+  相同。在 Chromium 里，列表在页面内朝空间较大的一侧展开，一次显示全部选项，不用滚动；其他浏览器仍用系统菜单。换模型时，
+  推理强度和主对话一样重置为新模型的默认值。fork 会沿用主对话的模型和推理强度，所以选择不变时什么也不写；选择不同
+  时，插件在发出第一条消息之前把它设到 fork 上，和 DSH 里任何一次切换模型一样，这个选择也会成为宿主新建对话的默认模型。
+  宿主已不提供的选择会显示为不可用，不会被换成别的模型：宿主拒绝你选的模型，或者设不上时，不会发送，并在页面上说明原因；
+  没选模型时，无论如何都会按主对话的模型发送。`重置`，以及 `新建侧边对话` 复用一个空白页面时，都会恢复为主对话的设置。
+  主对话的设置不受影响。
 - **继承来的轮次默认折叠。** 每个页面都有工具栏：
 
   | 按钮 | 作用 |
@@ -120,6 +127,7 @@ dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.7.0 --dsh-v
 | `[data-conversation-session]`、`[data-sidebar-right-*]` | 选区属于哪个对话；侧栏里只有已发送的侧边对话可引用 |
 | `[data-chat-flow-key]`、`[data-chat-flow-kind="user"]`、`ctx.sessions.binding().eventSource` | 继承的轮次到哪里为止，用于折叠 |
 | `ctx.sessions.fork` / `retain` / `binding.session` / `list` | 创建、命名、持有侧边对话并给它编号 |
+| `ctx.modelDirectories.directoryFor(id)`：`store`、`load`、`select`；`ctx.sessions.retainInfo` | 草稿的模型和推理强度菜单，以及把选择设到 fork 上；察觉主对话的会话绑定出现或更换 |
 | `ctx.sidebarRight`、`ctx.sidebarRightTabs`、`sidebar.right.pane.tab(.title)` | 侧边对话页面类型与标签名；打开、显示和关闭页面 |
 | `conversation.session.header.utilities` | 顶栏的 `新建侧边对话` 和 `全部删除` |
 | `annotateSidechat.conversation` + `conversation.content` | 在面板里渲染宿主的对话界面 |
