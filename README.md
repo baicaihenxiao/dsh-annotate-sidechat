@@ -18,10 +18,11 @@ select a reply inside a sent side chat  →  Send to chat: the quote goes to tha
 
 ![The main chat with the quote menu open, and a side chat in the right sidebar](docs/sidechat.webp)
 
-> **Status: 1.7.0**, for DeepSeek Harness `0.2.1-rc.2` and `0.2.1-rc.5`, the only
-> hosts it supports. Checked headlessly (`node check.mjs`); 1.7.0's composer
-> changes have not been tried in a browser yet. See [Requirements](#requirements)
-> for the versions that were.
+> **Status: 1.8.0**, for DeepSeek Harness `0.2.1-rc.2` and `0.2.1-rc.5`, the only
+> hosts it supports. Checked headlessly (`node check.mjs`). 1.8.0's model and
+> effort menus were seen in a browser on `0.2.1-rc.5`; sending a side chat with
+> them, and 1.7.0's composer changes, have not been tried there yet. See
+> [Requirements](#requirements) for the versions that were.
 
 ## Usage
 
@@ -118,7 +119,7 @@ commits do not arrive by themselves:
 |---|---|
 | `github:baicaihenxiao/dsh-annotate-sidechat` | `dsh plugin --profile <profile> update dsh-annotate-sidechat`, or remove the bundle and install it again |
 | a local checkout | `git pull` in the checkout |
-| a tag or commit | install that revision, e.g. `github:baicaihenxiao/dsh-annotate-sidechat#v1.7.0` (a commit SHA must be the full 40 characters) |
+| a tag or commit | install that revision, e.g. `github:baicaihenxiao/dsh-annotate-sidechat#v1.8.0` (a commit SHA must be the full 40 characters) |
 
 The `dsh plugin` CLI only installs the package, so re-select the bundle after
 using it. Reload the Web page afterwards.
@@ -130,7 +131,7 @@ using it. Reload the Web page afterwards.
 | `1.0.0` – `1.1.0` | `0.2.0-rc.2` | `1.0.0` |
 | `1.2.0` – `1.4.1` | `0.2.0-rc.2`, `0.2.1-rc.2` | `1.2.0` on both; `1.2.1`, `1.3.0`, `1.3.1`, `1.4.1` on `0.2.1-rc.2` |
 | `1.5.0` – `1.6.0` | `0.2.1-rc.2` | `1.6.0`'s quote location line only |
-| `1.7.0` | `0.2.1-rc.2`, `0.2.1-rc.5` | not yet |
+| `1.7.0` – `1.8.0` | `0.2.1-rc.2`, `0.2.1-rc.5` | `1.8.0`'s model and effort menus on `0.2.1-rc.5` |
 
 Node `^22.19.0 || >=24.0.0`. Everything else ships with DSH, so the bundle has
 no dependencies of its own. Because it relies on internal host seams (below),
@@ -139,7 +140,7 @@ DSH refuses to install it on any other. On `0.2.0-rc.2`, install `#v1.4.1`. To r
 on an unverified host anyway, accepting the risk:
 
 ```sh
-dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.7.0 --dsh-version <runtime> --accept-risk
+dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.8.0 --dsh-version <runtime> --accept-risk
 ```
 
 ## Files
