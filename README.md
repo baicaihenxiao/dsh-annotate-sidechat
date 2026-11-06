@@ -90,7 +90,9 @@ select a reply inside a sent side chat  →  Send to chat: the quote goes to tha
 - **Archived or deleted elsewhere** (say, from the session list), a side chat's
   page closes itself.
 - **Survives a reload.** Each page keeps a small record in `localStorage`
-  (`dsh-annotate-sidechat:page:<tabId>`), dropped when the page closes.
+  (`dsh-annotate-sidechat:tab:<sessionId>/<tabId>`: every chat's sidebar
+  numbers its tabs from the same start, so the tab id alone is not unique),
+  dropped when the page closes.
 - A sent side chat is the host's own conversation (`conversation.content`),
   rendered in the plugin's `annotateSidechat.conversation` slot.
 

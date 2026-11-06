@@ -500,7 +500,7 @@ assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane ses
   const go = (parentId) => plugin.__test.openUnusedSideChat({ ...ctx, get: () => sidebar }, chats, parentId);
   const page = (tabId, sessionId, patch) => {
     const entry = chats.create(sessionId);
-    chats.bindTab(tabId, entry.id);
+    chats.bindTab(sessionId, tabId, entry.id);
     chats.patch(entry.id, patch);
     open.push({ sessionId, tabId, kind: 'annotate-sidechat-note' });
     return entry.id;
@@ -524,14 +524,14 @@ assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane ses
   assert.equal(chats.get(fresh).inherited.turns, 2, 'and it previews the main chat as it is now');
   assert.equal(chats.get(fresh).model, null, 'and drops an earlier model pick, so it follows the main chat as Reset does');
   open = [{ sessionId: 'parent-r', tabId: 'tab-reloaded', kind: 'annotate-sidechat-note' }];
-  storage.set('dsh-annotate-sidechat:page:tab-reloaded', JSON.stringify({ id: 'note-r', parentId: 'parent-r', index: 1, model: { provider: 'other', model: 'plain' } }));
+  storage.set('dsh-annotate-sidechat:tab:parent-r/tab-reloaded', JSON.stringify({ id: 'note-r', parentId: 'parent-r', index: 1, model: { provider: 'other', model: 'plain' } }));
   mainChat.dataset.conversationSession = 'parent-r';
   go('parent-r');
   delete document.querySelectorAll;
   assert.equal(focused.at(-1), 'tab-reloaded', 'a page not rendered since a reload is found by its record');
-  assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:page:tab-reloaded')).inherited.turns, 2,
+  assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:tab:parent-r/tab-reloaded')).inherited.turns, 2,
     'which takes the fresh preview for when it renders');
-  assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:page:tab-reloaded')).model, undefined, 'and drops its model pick too');
+  assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:tab:parent-r/tab-reloaded')).model, undefined, 'and drops its model pick too');
 }
 
 // ── Delete and Delete all: archive what was sent, close the pages ──────────
@@ -543,11 +543,12 @@ assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane ses
   const closed = [];
   let failArchive = false;
   let expanded = true;
+  let onScreen = 'parent-d';
   const open = [{ sessionId: 'parent-d', tabId: 'tab-d-guide', kind: 'guide' }];
   const sidebar = {
     openTab() {},
     openTabs: { getSnapshot: () => open.filter((tab) => !closed.includes(tab.tabId)), subscribe: () => () => {} },
-    mounted: { getSnapshot: () => 'parent-d' },
+    mounted: { getSnapshot: () => onScreen },
     close: (tabId) => { closed.push(tabId); },
     isExpanded: () => expanded,
     toggleExpanded: () => { expanded = !expanded; },
@@ -557,20 +558,24 @@ assert.equal(injected.sessionId, 'parent-1', 'the injector receives the pane ses
   ctx.get = (name) => ({ sidebarRight: sidebar, uiWorkspace: workspace })[name];
   const page = (tabId, sessionId, childId) => {
     const entry = chats.create(sessionId);
-    chats.bindTab(tabId, entry.id);
+    chats.bindTab(sessionId, tabId, entry.id);
     if (childId !== undefined) chats.patch(entry.id, { childId });
     open.push({ sessionId, tabId, kind });
     return entry.id;
   };
-  const del = (tabIds) => plugin.__test.deleteSideChats(ctx, chats, tabIds, (key) => key);
+  const del = (tabIds, sessionId = 'parent-d') => plugin.__test.deleteSideChats(ctx, chats, sessionId, tabIds, (key) => key);
   const sentPage = page('tab-d-sent', 'parent-d', 'child-d');
   page('tab-d-draft', 'parent-d');
   page('tab-d-other', 'parent-elsewhere', 'child-e');
 
   const sending = page('tab-d-busy', 'parent-busy');
   chats.patch(sending, { busy: true });
-  await del(['tab-d-busy']);
+  onScreen = 'parent-busy';
+  await del(['tab-d-busy'], 'parent-busy');
+  onScreen = 'parent-d';
   assert.deepEqual(closed, [], 'a page still sending stays, or its fork would outlive the delete');
+  await del(['tab-d-sent'], 'parent-elsewhere');
+  assert.deepEqual([archived, closed], [[], []], 'a chat not on screen deletes nothing: close acts on the one that is');
 
   failArchive = true;
   await del(['tab-d-sent']);
@@ -659,13 +664,13 @@ assert.match(source, /setInherited\(typeof boundaryTurn === 'number' && boundary
   };
   const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
   chats.ensure('note-held', { parentId: 'held-parent', index: 1, childId: 'child-held' });
-  chats.bindTab('tab-held', 'note-held');
+  chats.bindTab('held-parent', 'tab-held', 'note-held');
   assert.equal(chats.hold('child-held'), chats.hold('child-held'), 'every mount of the page shares one reference');
   assert.equal(counts.retained, 1, 'retained once however often the body remounts');
   chats.drop('child-held');
   await tick();
   assert.equal(counts.released, 0, 'a page that still shows the side chat keeps holding it');
-  chats.unbindTab('tab-held');
+  chats.unbindTab('held-parent', 'tab-held');
   chats.drop('child-held');
   await tick();
   assert.equal(counts.released, 1, 'a closed page lets its side chat go');
@@ -697,15 +702,19 @@ assert.match(source, /setInherited\(typeof boundaryTurn === 'number' && boundary
   const counts = { released: 0 };
   const originalRetain = ctx.sessions.retain;
   ctx.sessions.retain = () => ({ ready: Promise.resolve(), binding: { session: {} }, release: () => { counts.released += 1; } });
-  const page = (id, tabId, childId) => {
+  const page = (id, sessionId, tabId, childId) => {
     chats.ensure(id, { parentId: 'gone-parent', index: 1, childId });
-    chats.bindTab(tabId, id);
+    chats.bindTab(sessionId, tabId, id);
   };
-  page('note-arch', 'tab-arch', 'child-arch');
-  page('note-del', 'tab-del', 'child-del');
-  page('note-live', 'tab-live', 'child-live');
-  page('note-reset', 'tab-reset', 'child-reset');
-  storage.set('dsh-annotate-sidechat:page:tab-kept-gone', JSON.stringify({ id: 'note-kept-gone', parentId: 'gone-parent', index: 2, childId: 'child-arch' }));
+  page('note-arch', 'on-screen', 'tab-arch', 'child-arch');
+  page('note-del', 'elsewhere', 'tab-del', 'child-del');
+  page('note-live', 'on-screen', 'tab-live', 'child-live');
+  page('note-reset', 'on-screen', 'tab-reset', 'child-reset');
+  // Every chat's sidebar counts its tab ids from the same start: a side chat's
+  // page here and its own side chat's page in that side chat share an id.
+  page('note-shared-live', 'on-screen', 'tab-shared', 'child-live');
+  page('note-shared-gone', 'elsewhere', 'tab-shared', 'child-arch');
+  storage.set('dsh-annotate-sidechat:tab:on-screen/tab-kept-gone', JSON.stringify({ id: 'note-kept-gone', parentId: 'gone-parent', index: 2, childId: 'child-arch' }));
   chats.hold('child-del');
   chats.setResetting('child-reset', true);
   const closed = [];
@@ -720,6 +729,8 @@ assert.match(source, /setInherited\(typeof boundaryTurn === 'number' && boundary
       { sessionId: 'on-screen', tabId: 'tab-live', kind },
       { sessionId: 'on-screen', tabId: 'tab-reset', kind },
       { sessionId: 'on-screen', tabId: 'tab-kept-gone', kind },
+      { sessionId: 'on-screen', tabId: 'tab-shared', kind },
+      { sessionId: 'elsewhere', tabId: 'tab-shared', kind },
       { sessionId: 'on-screen', tabId: 'tab-other-type', kind: 'terminal' },
     ] },
   };
@@ -729,7 +740,8 @@ assert.match(source, /setInherited\(typeof boundaryTurn === 'number' && boundary
     sidebar,
   }), chats);
   assert.deepEqual(closed, ['tab-arch', 'tab-kept-gone'],
-    'the on-screen chat\'s pages of archived or deleted side chats close, from memory or from their record');
+    'the on-screen chat\'s pages of archived or deleted side chats close, from memory or from their record, '
+    + 'and not one whose tab id another chat\'s archived side chat also has');
   await new Promise((resolve) => setTimeout(resolve, 5));
   assert.equal(counts.released, 1, 'a page of a chat not on screen lets its deleted side chat go at once');
   chats.setResetting('child-reset', false);
@@ -806,7 +818,7 @@ assert.ok(find(bareTree, (node) => node.type === 'div' && node.props.className =
 // The sidebar persists layouts but not navigation params, so a restored page
 // gets its identity from the record this plugin kept for the tab: not a new
 // mint, and with its draft, child and inherited snapshot intact.
-storage.set('dsh-annotate-sidechat:page:tab-kept', JSON.stringify({
+storage.set('dsh-annotate-sidechat:tab:parent-1/tab-kept', JSON.stringify({
   at: Date.now(),
   id: 'note-kept',
   parentId: 'parent-1',
@@ -816,7 +828,7 @@ storage.set('dsh-annotate-sidechat:page:tab-kept', JSON.stringify({
   inherited: { columnClass: '', html: '<div data-chat-flow-key="k"><p>kept row</p></div>', messages: 1, turns: 1, hidden: 0 },
 }));
 const reloaded = panelOf(undefined, 'parent-1', 'tab-kept');
-assert.equal(injected.chats.idOfTab('tab-kept'), 'note-kept', 'the page keeps its side chat instead of minting one');
+assert.equal(injected.chats.idOfTab('parent-1', 'tab-kept'), 'note-kept', 'the page keeps its side chat instead of minting one');
 assert.equal(injected.chats.get('note-kept').draft, 'a draft kept across the reload', 'with its draft');
 assert.equal(injected.chats.get('note-kept').index, 7, 'and its number');
 assert.ok(JSON.stringify(reloaded).includes('kept row'), 'the restored page renders the history it snapshotted');
@@ -856,7 +868,7 @@ assert.equal(allLongRows.find((node) => node.props.className === 'dsh-note-empty
   'a preview whose messages were all too long does not claim the main chat has nothing');
 assert.equal(allLongRows[allLongRows.length - 1].props.className, 'dsh-note-skipped', 'it says they were too long instead');
 
-storage.set('dsh-annotate-sidechat:page:tab-child', JSON.stringify({
+storage.set('dsh-annotate-sidechat:tab:parent-1/tab-child', JSON.stringify({
   at: Date.now(),
   id: 'note-child',
   parentId: 'parent-1',
@@ -864,10 +876,45 @@ storage.set('dsh-annotate-sidechat:page:tab-child', JSON.stringify({
   childId: 'child-7',
 }));
 const restoredChat = panelOf(undefined, 'parent-1', 'tab-child');
-assert.equal(injected.chats.idOfTab('tab-child'), 'note-child', 'a page with a chat keeps it too');
+assert.equal(injected.chats.idOfTab('parent-1', 'tab-child'), 'note-child', 'a page with a chat keeps it too');
 assert.equal(injected.chats.get('note-child').childId, 'child-7', 'and restores that conversation');
 assert.equal(find(restoredChat, (node) => node.type === 'textarea'), undefined,
   'and shows its conversation instead of a new-chat composer');
+
+// Each chat's sidebar counts its tab ids from the same start, so a side chat's
+// page in the main chat and that side chat's own side-chat page share a tab id.
+// Each keeps its own record, and closing one forgets only its own.
+storage.set('dsh-annotate-sidechat:tab:main-x/tab-same', JSON.stringify({ id: 'note-s1', parentId: 'main-x', index: 1, childId: 'child-s1' }));
+storage.set('dsh-annotate-sidechat:tab:child-s1/tab-same', JSON.stringify({ id: 'note-s1s1', parentId: 'child-s1', index: 1, childId: 'child-s1s1' }));
+panelOf(undefined, 'main-x', 'tab-same');
+panelOf(undefined, 'child-s1', 'tab-same');
+assert.deepEqual([injected.chats.idOfTab('main-x', 'tab-same'), injected.chats.idOfTab('child-s1', 'tab-same')],
+  ['note-s1', 'note-s1s1'], 'two chats\' pages under one tab id each restore their own side chat');
+assert.equal(injected.chats.tabOfId('note-s1').sessionId, 'main-x', 'and each side chat knows the chat its page is in');
+await new Promise((resolve) => setTimeout(resolve, 350));
+assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:tab:main-x/tab-same')).childId, 'child-s1',
+  'the second page\'s record never overwrites the first');
+
+// Records 1.8.0 kept under the tab id alone move to their own chat's tab, the
+// chat each names as its main chat, when that tab is still open.
+{
+  const kind = 'annotate-sidechat-note';
+  storage.set('dsh-annotate-sidechat:page:tab-old', JSON.stringify({ id: 'note-old', parentId: 'chat-a', index: 2, childId: 'child-old' }));
+  storage.set('dsh-annotate-sidechat:page:tab-orphan', JSON.stringify({ id: 'note-orphan', parentId: 'chat-gone', index: 1 }));
+  storage.set('dsh-annotate-sidechat:tab:chat-a/tab-stale', JSON.stringify({ id: 'note-stale', parentId: 'chat-a', index: 3 }));
+  plugin.__test.sweepPages([
+    { sessionId: 'chat-a', tabId: 'tab-old', kind },
+    { sessionId: 'chat-b', tabId: 'tab-old', kind },
+    { sessionId: 'chat-b', tabId: 'tab-orphan', kind },
+  ]);
+  assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:tab:chat-a/tab-old')).childId, 'child-old',
+    'an old record moves to its main chat\'s tab');
+  assert.equal(storage.has('dsh-annotate-sidechat:tab:chat-b/tab-old'), false, 'not to another chat\'s tab of the same id');
+  assert.equal(storage.has('dsh-annotate-sidechat:tab:chat-b/tab-orphan'), false, 'one whose main chat has no such tab is dropped');
+  assert.equal(Array.from(storage.keys()).some((key) => key.startsWith('dsh-annotate-sidechat:page:')), false,
+    'no old record is left behind');
+  assert.equal(storage.has('dsh-annotate-sidechat:tab:chat-a/tab-stale'), false, 'a record no open tab holds is dropped');
+}
 
 // ── the chip names the page's side chat ────────────────────────────────────
 const chipTree = chip.component({
@@ -1223,7 +1270,7 @@ assert.match(
     plain, 'a page\'s params carry its pick');
   panelOf({ id: 'note-param-model', parentId: 'parent-1', index: 2, model: plain }, 'parent-1', 'tab-param-model');
   assert.deepEqual(injected.chats.get('note-param-model').model, plain, 'a page opened from its params keeps the pick');
-  storage.set('dsh-annotate-sidechat:page:tab-model', JSON.stringify({ id: 'note-model-kept', parentId: 'parent-1', index: 9, model: plain }));
+  storage.set('dsh-annotate-sidechat:tab:parent-1/tab-model', JSON.stringify({ id: 'note-model-kept', parentId: 'parent-1', index: 9, model: plain }));
   panelOf(undefined, 'parent-1', 'tab-model');
   assert.deepEqual(injected.chats.get('note-model-kept').model, plain, 'a reloaded page keeps the model it was given');
 }

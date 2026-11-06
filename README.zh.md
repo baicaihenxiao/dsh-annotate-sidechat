@@ -65,7 +65,7 @@
   | `继承 N 轮` | 显示或隐藏继承的轮次 |
 
 - **在别处归档或删除**（比如在会话列表里）后，侧边对话的页面会自行关闭。
-- **刷新后仍在。** 每个页面在 `localStorage` 里保存一条小记录（`dsh-annotate-sidechat:page:<tabId>`），页面关闭时删除。
+- **刷新后仍在。** 每个页面在 `localStorage` 里保存一条小记录（`dsh-annotate-sidechat:tab:<sessionId>/<tabId>`：每个对话的侧栏都从同一个起点给标签页编号，单凭 tab id 并不唯一），页面关闭时删除。
 - 已发送的侧边对话就是宿主自己的对话界面（`conversation.content`），渲染在插件的 `annotateSidechat.conversation` slot 里。
 
 ## 安装

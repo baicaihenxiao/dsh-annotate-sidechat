@@ -183,54 +183,83 @@ window.__ModuleLoader__.load({
     /** Plugin-owned per-page memory. The sidebar persists its layout (ids and
      *  addresses) but not the navigation params a page was opened with, so on
      *  reload a page would forget which side chat it is, what it inherited and
-     *  what was typed into it. Records are keyed by the tab's own id, which the
-     *  layout does keep, and dropped once no saved layout holds that tab. */
-    const PAGE_PREFIX = 'dsh-annotate-sidechat:page:';
+     *  what was typed into it. Records are keyed by the page's chat and tab id
+     *  (`pageKey`), which the layout does keep, and dropped once no saved
+     *  layout holds that tab. */
+    const PAGE_PREFIX = 'dsh-annotate-sidechat:tab:';
+    /** 1.8.0 and earlier kept a record under its tab id alone. */
+    const LEGACY_PAGE_PREFIX = 'dsh-annotate-sidechat:page:';
     const PAGE_WRITE_DELAY = 300;
     const pageRecords = new Map();
 
-    function readPage(tabId) {
-      if (typeof tabId !== 'string' || tabId === '') return null;
-      if (pageRecords.has(tabId)) return pageRecords.get(tabId);
+    /**
+     * The page a record or binding belongs to. Every chat's sidebar counts its
+     * tab ids from the same start, so a tab id alone names a page in each chat
+     * that has one: a side chat's page in the main chat and that side chat's own
+     * side-chat page came out as the same id, and archiving the second closed
+     * the first.
+     * @returns `''` when either half is missing; nothing is kept under it.
+     */
+    function pageKey(sessionId, tabId) {
+      return typeof sessionId === 'string' && sessionId !== '' && typeof tabId === 'string' && tabId !== ''
+        ? sessionId + '/' + tabId : '';
+    }
+
+    function readPage(key) {
+      if (typeof key !== 'string' || key === '') return null;
+      if (pageRecords.has(key)) return pageRecords.get(key);
       let record = null;
       try {
-        const raw = window.localStorage.getItem(PAGE_PREFIX + tabId);
+        const raw = window.localStorage.getItem(PAGE_PREFIX + key);
         const parsed = raw === null ? null : JSON.parse(raw);
         if (parsed !== null && typeof parsed === 'object' && typeof parsed.id === 'string' && parsed.id !== '') record = parsed;
       } catch (error) { record = null; }
-      pageRecords.set(tabId, record);
+      pageRecords.set(key, record);
       return record;
     }
 
-    function writePage(tabId, entry) {
-      if (typeof tabId !== 'string' || tabId === '' || typeof entry.id !== 'string' || entry.id === '') return;
+    function writePage(key, entry) {
+      if (typeof key !== 'string' || key === '' || typeof entry.id !== 'string' || entry.id === '') return;
       // The record and the page's navigation params carry the same state.
       const record = sideChatParams(entry);
-      pageRecords.set(tabId, record);
-      try { window.localStorage.setItem(PAGE_PREFIX + tabId, JSON.stringify(record)); } catch (error) { /* the page just loses its memory */ }
+      pageRecords.set(key, record);
+      try { window.localStorage.setItem(PAGE_PREFIX + key, JSON.stringify(record)); } catch (error) { /* the page just loses its memory */ }
     }
 
-    function forgetPage(tabId) {
-      if (typeof tabId !== 'string' || tabId === '') return;
-      pageRecords.delete(tabId);
-      try { window.localStorage.removeItem(PAGE_PREFIX + tabId); } catch (error) { /* nothing to forget */ }
+    function forgetPage(key) {
+      if (typeof key !== 'string' || key === '') return;
+      pageRecords.delete(key);
+      try { window.localStorage.removeItem(PAGE_PREFIX + key); } catch (error) { /* nothing to forget */ }
     }
 
     /**
      * Drop the records whose tab no saved or adopted layout holds any more — a
      * page closed while this plugin was not listening. Age is no signal: a page
-     * in a chat nobody opened for a month is still that side chat.
+     * in a chat nobody opened for a month is still that side chat. A record
+     * kept under its tab id alone moves to that tab in the chat it names as its
+     * main chat, the chat whose sidebar opened it, when that tab is still open.
      * @param openTabs - the sidebar's tab inventory, read from every saved layout.
      */
     function sweepPages(openTabs) {
-      const live = new Set(openTabs.map((tab) => tab.tabId));
+      const live = new Set(openTabs.map((tab) => pageKey(tab.sessionId, tab.tabId)));
       try {
-        const stale = [];
-        for (let index = 0; index < window.localStorage.length; index += 1) {
-          const key = window.localStorage.key(index);
-          if (key !== null && key.startsWith(PAGE_PREFIX) && !live.has(key.slice(PAGE_PREFIX.length))) stale.push(key);
+        const keys = [];
+        for (let index = 0; index < window.localStorage.length; index += 1) keys.push(window.localStorage.key(index));
+        for (const key of keys) {
+          if (key === null) continue;
+          if (key.startsWith(LEGACY_PAGE_PREFIX)) {
+            const raw = window.localStorage.getItem(key);
+            let parentId;
+            try { parentId = JSON.parse(raw).parentId; } catch (error) { /* unreadable: dropped */ }
+            const moved = pageKey(parentId, key.slice(LEGACY_PAGE_PREFIX.length));
+            if (live.has(moved) && window.localStorage.getItem(PAGE_PREFIX + moved) === null) {
+              window.localStorage.setItem(PAGE_PREFIX + moved, raw);
+            }
+            window.localStorage.removeItem(key);
+          } else if (key.startsWith(PAGE_PREFIX) && !live.has(key.slice(PAGE_PREFIX.length))) {
+            window.localStorage.removeItem(key);
+          }
         }
-        for (const key of stale) window.localStorage.removeItem(key);
       } catch (error) { /* storage unavailable */ }
     }
 
@@ -710,7 +739,9 @@ window.__ModuleLoader__.load({
      */
     function createSideChats(ctx) {
       const entries = new Map();
+      /** `pageKey` → side chat id. */
       const tabIds = new Map();
+      /** Side chat id → its page: `{ key, sessionId, tabId }`. */
       const idsByTab = new Map();
       const listeners = new Set();
       const EMPTY = {
@@ -741,9 +772,9 @@ window.__ModuleLoader__.load({
         writing.set(id, setTimeout(() => {
           writing.delete(id);
           const entry = entries.get(id);
-          const tabId = idsByTab.get(id);
-          if (entry === undefined || tabId === undefined) return;
-          writePage(tabId, entry);
+          const page = idsByTab.get(id);
+          if (entry === undefined || page === undefined) return;
+          writePage(page.key, entry);
         }, PAGE_WRITE_DELAY));
       };
       const store = {
@@ -779,11 +810,11 @@ window.__ModuleLoader__.load({
           return EMPTY;
         },
         /** Mint the side chat a page opened without params (the guide) belongs to. */
-        forTab(tabId, parentId) {
-          const known = tabIds.get(tabId);
+        forTab(sessionId, tabId, parentId) {
+          const known = tabIds.get(pageKey(sessionId, tabId));
           if (known !== undefined) return known;
           const entry = store.create(parentId);
-          store.bindTab(tabId, entry.id);
+          store.bindTab(sessionId, tabId, entry.id);
           return entry.id;
         },
         create(parentId) {
@@ -803,25 +834,28 @@ window.__ModuleLoader__.load({
           queueMicrotask(notify);
           return entry;
         },
-        bindTab(tabId, id) {
-          if (typeof tabId !== 'string' || tabId === '' || typeof id !== 'string' || id === '') return;
-          const previous = tabIds.get(tabId);
+        bindTab(sessionId, tabId, id) {
+          const key = pageKey(sessionId, tabId);
+          if (key === '' || typeof id !== 'string' || id === '') return;
+          const previous = tabIds.get(key);
           if (previous !== undefined && previous !== id) idsByTab.delete(previous);
-          tabIds.set(tabId, id);
-          idsByTab.set(id, tabId);
+          tabIds.set(key, id);
+          idsByTab.set(id, { key: key, sessionId: sessionId, tabId: tabId });
           remember(id);
         },
-        idOfTab(tabId) {
-          return typeof tabId === 'string' ? tabIds.get(tabId) : undefined;
+        idOfTab(sessionId, tabId) {
+          return tabIds.get(pageKey(sessionId, tabId));
         },
+        /** The page showing a side chat: `{ key, sessionId, tabId }`. */
         tabOfId(id) {
           return typeof id === 'string' ? idsByTab.get(id) : undefined;
         },
         /** A closed page no longer shows its side chat. */
-        unbindTab(tabId) {
-          const id = tabIds.get(tabId);
-          tabIds.delete(tabId);
-          if (id !== undefined && idsByTab.get(id) === tabId) idsByTab.delete(id);
+        unbindTab(sessionId, tabId) {
+          const key = pageKey(sessionId, tabId);
+          const id = tabIds.get(key);
+          tabIds.delete(key);
+          if (id !== undefined && idsByTab.get(id)?.key === key) idsByTab.delete(id);
         },
         /**
          * The child's reference for as long as a page shows it, the way the host's
@@ -909,10 +943,10 @@ window.__ModuleLoader__.load({
     }
 
     /** The child a side-chat page shows: from the page in hand, else from its kept record. */
-    function childOfTab(chats, tabId) {
-      const id = chats.idOfTab(tabId);
+    function childOfTab(chats, sessionId, tabId) {
+      const id = chats.idOfTab(sessionId, tabId);
       if (id !== undefined) return chats.get(id).childId;
-      const record = readPage(tabId);
+      const record = readPage(pageKey(sessionId, tabId));
       return record !== null && typeof record.childId === 'string' && record.childId !== '' ? record.childId : null;
     }
 
@@ -934,7 +968,7 @@ window.__ModuleLoader__.load({
       } catch (error) { return; }
       for (const tab of tabs) {
         if (tab.kind !== TAB_KIND) continue;
-        const childId = childOfTab(chats, tab.tabId);
+        const childId = childOfTab(chats, tab.sessionId, tab.tabId);
         if (childId === null || chats.isResetting(childId) || !childGone(ctx, childId)) continue;
         if (tab.sessionId === onScreen) {
           try { sidebar.close(tab.tabId); } catch (error) { /* already closed */ }
@@ -1275,17 +1309,22 @@ window.__ModuleLoader__.load({
 
     /**
      * Rewrite one side chat's page parameters in place — the tab takes its own
-     * place back — so a reloaded page restores the chat it was showing.
+     * place back — so a reloaded page restores the chat it was showing. Only
+     * in the chat on screen, the one `openTab` acts on: another chat's tab of
+     * the same id is another page.
      */
     function refreshSideChatPage(ctx, chats, id) {
       const sidebar = sidebarRightOf(ctx);
-      const tabId = chats.tabOfId(id);
-      if (sidebar === undefined || tabId === undefined) return;
+      const page = chats.tabOfId(id);
+      if (sidebar === undefined || page === undefined) return;
+      try {
+        if (sidebar.mounted.getSnapshot() !== page.sessionId) return;
+      } catch (error) { return; }
       const entry = chats.get(id);
       const cwd = currentCwd(ctx, entry.parentId);
       try {
         sidebar.openTab(TAB_KIND, {
-          replaceTab: tabId,
+          replaceTab: page.tabId,
           params: { ...sideChatParams(entry), ...cwd === undefined ? {} : { cwd: cwd } },
         });
       } catch (error) { /* the layout is gone; the page keeps its previous params */ }
@@ -1329,7 +1368,7 @@ window.__ModuleLoader__.load({
         if (typeof onScreen !== 'string' || onScreen === '' || onScreen !== currentSessionId(ctx)) return undefined;
         const tab = sidebar.active();
         if (tab === undefined || tab === null || tab.kind !== TAB_KIND) return undefined;
-        return chats.idOfTab(tab.id);
+        return chats.idOfTab(onScreen, tab.id);
       } catch (error) { return undefined; }
     }
 
@@ -1496,15 +1535,20 @@ window.__ModuleLoader__.load({
      * sending, whose fork would land after the archive. The host folds the
      * column when its last docked tab closes, but not when a guide is left
      * beside it, so the column is folded whenever nothing but the guide remains.
+     * @param sessionId - the chat the pages are in, which must be on screen:
+     *   `close` acts on that chat's sidebar.
      */
-    async function deleteSideChats(ctx, chats, tabIds, t) {
+    async function deleteSideChats(ctx, chats, sessionId, tabIds, t) {
       const sidebar = sidebarRightOf(ctx);
       if (sidebar === undefined) return;
+      try {
+        if (sidebar.mounted.getSnapshot() !== sessionId) return;
+      } catch (error) { return; }
       const closed = new Set();
       for (const tabId of tabIds) {
-        const id = chats.idOfTab(tabId);
+        const id = chats.idOfTab(sessionId, tabId);
         if (id !== undefined && chats.get(id).busy) continue;
-        const childId = childOfTab(chats, tabId);
+        const childId = childOfTab(chats, sessionId, tabId);
         try {
           if (childId !== null) await archiveSession(ctx, childId);
         } catch (error) {
@@ -1515,9 +1559,8 @@ window.__ModuleLoader__.load({
       }
       if (closed.size === 0) return;
       try {
-        const onScreen = sidebar.mounted.getSnapshot();
         const left = sidebar.openTabs.getSnapshot()
-          .some((tab) => tab.sessionId === onScreen && tab.kind !== 'guide' && !closed.has(tab.tabId));
+          .some((tab) => tab.sessionId === sessionId && tab.kind !== 'guide' && !closed.has(tab.tabId));
         if (!left && sidebar.isExpanded()) sidebar.toggleExpanded();
       } catch (error) { /* no surface to fold */ }
     }
@@ -1534,8 +1577,8 @@ window.__ModuleLoader__.load({
       try { tabs = sidebar.openTabs.getSnapshot(); } catch (error) { /* no inventory: open a new page */ }
       const unused = tabs.find((tab) => {
         if (tab.kind !== TAB_KIND || tab.sessionId !== parentId) return false;
-        const id = chats.idOfTab(tab.tabId);
-        const page = id === undefined ? readPage(tab.tabId) : chats.get(id);
+        const id = chats.idOfTab(parentId, tab.tabId);
+        const page = id === undefined ? readPage(pageKey(parentId, tab.tabId)) : chats.get(id);
         return page !== null && typeof page.childId !== 'string' && !(page.draft ?? '').trim();
       });
       if (unused === undefined) {
@@ -1545,9 +1588,10 @@ window.__ModuleLoader__.load({
       // Its send forks from the main chat as it is now: preview that, and drop
       // an earlier model pick so it follows the main chat's, as Reset does.
       const fresh = { model: null, ...mainTranscript(parentId) === null ? {} : { inherited: captureInherited(ctx.sessions, parentId) } };
-      if (chats.idOfTab(unused.tabId) === undefined) writePage(unused.tabId, { ...readPage(unused.tabId), ...fresh });
+      const key = pageKey(parentId, unused.tabId);
+      if (chats.idOfTab(parentId, unused.tabId) === undefined) writePage(key, { ...readPage(key), ...fresh });
       revealSideChat(ctx, unused.tabId);
-      const id = chats.idOfTab(unused.tabId);
+      const id = chats.idOfTab(parentId, unused.tabId);
       if (id !== undefined) chats.patch(id, { ...fresh, focusToken: chats.get(id).focusToken + 1 });
     }
 
@@ -1919,7 +1963,7 @@ window.__ModuleLoader__.load({
           // and the composer takes the focus once the panel is up. A chat that
           // takes too long to load gets the menu back with an error, rather
           // than the quote vanishing.
-          revealSideChat(ctx, chats.tabOfId(target.id));
+          revealSideChat(ctx, chats.tabOfId(target.id)?.tabId);
           if (!(await writeDraft(ctx, target.childId, text, 25))) {
             store.set({ pending: selection, error: t('sideChat.quoteFailed') });
           }
@@ -1928,7 +1972,7 @@ window.__ModuleLoader__.load({
         if (target !== undefined) {
           // The open page is still pending; the bumped token asks it to take the
           // focus once it has re-rendered with the quote.
-          revealSideChat(ctx, chats.tabOfId(target.id));
+          revealSideChat(ctx, chats.tabOfId(target.id)?.tabId);
           chats.patch(target.id, {
             draft: appendDraft(target.draft, text),
             error: '',
@@ -2115,8 +2159,8 @@ window.__ModuleLoader__.load({
       // all a reloaded page has, since the sidebar persists layouts but not
       // params), or a fresh side chat for a guide-opened page.
       const fromParams = typeof bag.id === 'string' && bag.id !== '';
-      const stored = fromParams ? null : readPage(tabId);
-      const id = fromParams ? bag.id : (stored === null ? props.sideChatForTab(tabId, parentId) : stored.id);
+      const stored = fromParams ? null : readPage(pageKey(paneSessionId, tabId));
+      const id = fromParams ? bag.id : (stored === null ? props.chats.forTab(paneSessionId, tabId, parentId) : stored.id);
       const source = fromParams ? bag : stored;
       props.chats.ensure(id, {
         parentId: source !== null && typeof source.parentId === 'string' && source.parentId !== ''
@@ -2131,7 +2175,7 @@ window.__ModuleLoader__.load({
         model: source !== null && source.model !== null && typeof source.model === 'object'
           && typeof source.model.provider === 'string' && typeof source.model.model === 'string' ? source.model : null,
       });
-      props.chats.bindTab(tabId, id);
+      props.chats.bindTab(paneSessionId, tabId, id);
       const entry = React.useSyncExternalStore(
         props.chats.subscribe,
         () => props.chats.get(id),
@@ -2451,13 +2495,13 @@ window.__ModuleLoader__.load({
       const params = info.tab.navigation.params;
       const bag = params !== null && typeof params === 'object' ? params : {};
       const tabId = typeof info.tab.id === 'string' ? info.tab.id : '';
-      const bound = props.chats.idOfTab(tabId);
+      const bound = props.chats.idOfTab(props.sessionId, tabId);
       const id = typeof bound === 'string' ? bound : (typeof bag.id === 'string' && bag.id !== '' ? bag.id : '');
       const entry = React.useSyncExternalStore(
         props.chats.subscribe,
         () => props.chats.get(id),
       );
-      const stored = id === '' ? readPage(tabId) : null;
+      const stored = id === '' ? readPage(pageKey(props.sessionId, tabId)) : null;
       const index = entry.index > 0 ? entry.index
         : (Number.isSafeInteger(bag.index) ? bag.index
           : (stored !== null && Number.isSafeInteger(stored.index) ? stored.index : 1));
@@ -2519,6 +2563,7 @@ window.__ModuleLoader__.load({
         menuKey: menuKey,
         childGone: childGone,
         closeGoneSideChats: closeGoneSideChats,
+        sweepPages: sweepPages,
         openUnusedSideChat: openUnusedSideChat,
         deleteSideChats: deleteSideChats,
         Overlay: Overlay,
@@ -2611,7 +2656,6 @@ window.__ModuleLoader__.load({
             chats: chats,
             newSideChat: (id) => newSideChat(ctx, chats, id),
             resetSideChat: (id) => resetSideChat(ctx, chats, id, t),
-            deleteSideChat: (tabId) => deleteSideChats(ctx, chats, [tabId], t),
             sendSideChat: (id) => { void submitSideChat(ctx, chats, id, t); },
             modelDirectory: directoryOf,
             models: modelDirectories.getSnapshot,
@@ -2635,7 +2679,7 @@ window.__ModuleLoader__.load({
               ...shared,
               sessions: ctx.sessions,
               sessionId: sessionId,
-              sideChatForTab: (tabId, parentId) => chats.forTab(tabId, parentId),
+              deleteSideChat: (tabId) => deleteSideChats(ctx, chats, sessionId, [tabId], t),
             }),
           }, SideChatTab));
           // A closed page is remembered no longer, and lets its side chat go;
@@ -2651,10 +2695,10 @@ window.__ModuleLoader__.load({
             }
             const dispose = sidebar.registerCloseHandler(TAB_KIND, (sessionId, tab) => {
               const tabId = tab === undefined || tab === null ? '' : tab.id;
-              const entry = chats.get(chats.idOfTab(tabId));
-              chats.unbindTab(tabId);
+              const entry = chats.get(chats.idOfTab(sessionId, tabId));
+              chats.unbindTab(sessionId, tabId);
               if (entry.childId !== null) chats.drop(entry.childId);
-              forgetPage(tabId);
+              forgetPage(pageKey(sessionId, tabId));
             });
             return () => { try { dispose(); } catch (error) { /* already released */ } };
           });
@@ -2662,7 +2706,7 @@ window.__ModuleLoader__.load({
             name: 'sidebar.right.pane.tab.title',
             key: TAB_ID,
             locale: NS,
-            inject: () => ({ chats: chats }),
+            inject: (sessionId) => ({ chats: chats, sessionId: sessionId }),
           }, SideChatChip));
           const disposeChat = ctx.slots.inject(CONVERSATION_SLOT, () => ctx.slots.register({
             name: CONVERSATION_SLOT,
@@ -2677,7 +2721,7 @@ window.__ModuleLoader__.load({
               openSideChat: () => openUnusedSideChat(ctx, chats, sessionId),
               pageCount: () => sideChatTabsOf(ctx, sessionId).length,
               subscribeTabs: subscribeOpenTabs,
-              deleteAll: () => { void deleteSideChats(ctx, chats, sideChatTabsOf(ctx, sessionId), t); },
+              deleteAll: () => { void deleteSideChats(ctx, chats, sessionId, sideChatTabsOf(ctx, sessionId), t); },
             }),
           }, SideChatHeader));
           return () => { disposeHeader(); disposeChat(); disposeTitle(); disposeBody(); disposeClose(); disposeType(); };
