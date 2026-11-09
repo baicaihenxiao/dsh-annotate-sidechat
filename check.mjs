@@ -15,7 +15,11 @@ const source = readFileSync(new URL('./client.js', import.meta.url), 'utf8');
 const loads = [];
 
 const storage = new Map();
+/** `storage` listeners: what another tab's localStorage write would reach. */
+const storageListeners = [];
 globalThis.window = {
+  addEventListener: (type, fn) => { if (type === 'storage') storageListeners.push(fn); },
+  removeEventListener() {},
   __ModuleLoader__: { load: (spec) => loads.push(spec) },
   localStorage: {
     getItem: (key) => (storage.has(key) ? storage.get(key) : null),
@@ -36,6 +40,11 @@ globalThis.document = {
   addEventListener() {},
   removeEventListener() {},
 };
+
+// The session-list order runs in the browser; here it only has to install and stop.
+globalThis.MutationObserver = class { observe() {} disconnect() {} };
+globalThis.requestAnimationFrame = () => 0;
+globalThis.cancelAnimationFrame = () => {};
 
 new Function(source)();
 
@@ -772,6 +781,24 @@ injected.chats.create('parent-1');
 assert.equal(nextSideChatIndex(ctx, injected.chats, 'parent-1'), 5, 'a live page pushes the number up too');
 assert.equal(nextSideChatIndex(ctx, injected.chats, 'other'), 1, 'another parent starts at 1');
 
+// ── the session list shows side chats right under their main chat ──────────
+{
+  const { sideChatOrder } = plugin.__test;
+  // header, S2 of A (newer), A, B, S1 of A, S1 of B, S1 of S1-of-A, "show more"
+  const sides = new Map([['a2', { main: 'A', path: [2] }], ['a1', { main: 'A', path: [1] }],
+    ['b1', { main: 'B', path: [1] }], ['a11', { main: 'a1', path: [1] }]]);
+  assert.deepEqual(sideChatOrder(['head', 'a2', 'A', 'B', 'a1', 'b1', 'a11', 'more'], sides),
+    ['head', 'A', 'a1', 'a11', 'a2', 'B', 'b1', 'more'], 'each main chat leads its side chats, by number; the rest keep the host order');
+  assert.deepEqual(sideChatOrder(['A', 'a1', 'B'], new Map([['a1', { main: 'A', path: [1] }]])), ['A', 'a1', 'B'],
+    'rows already in place stay as they are');
+  assert.deepEqual(sideChatOrder(['x', 'y'], new Map([['x', { main: 'y', path: [1] }], ['y', { main: 'x', path: [1] }]])), ['x', 'y'],
+    'no row is lost, even to a cycle');
+  // S1 of A archived: its own S1 and S2 move up into its place, ahead of A's S2.
+  assert.deepEqual(sideChatOrder(['a2', 'a12', 'A', 'a11'], new Map([['a2', { main: 'A', path: [2] }],
+    ['a12', { main: 'A', path: [1, 2] }], ['a11', { main: 'A', path: [1, 1] }]])),
+  ['A', 'a11', 'a12', 'a2'], 'side chats moved up a level take their parent\'s place');
+}
+
 // ── the pending panel: a menu-opened page restores its draft ───────────────
 const panelOf = (params, sessionId, tabId = 'tab-1') => body.component({
   ...body.options.inject(sessionId),
@@ -894,6 +921,61 @@ assert.equal(injected.chats.tabOfId('note-s1').sessionId, 'main-x', 'and each si
 await new Promise((resolve) => setTimeout(resolve, 350));
 assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:tab:main-x/tab-same')).childId, 'child-s1',
   'the second page\'s record never overwrites the first');
+
+// A fork's session row names no parent, so the session list learns a side
+// chat's main chat from what the plugin remembered, else from a unique title.
+{
+  const { mainChatOf } = plugin.__test;
+  const match = (title) => /^(?:↳S|↳侧|sidechat-)(\d+)/.exec(title);
+  const list = (byId) => ({ ids: Object.keys(byId), byId });
+  assert.equal(mainChatOf(list({}), 'child-s1s1', '↳S1·x', match('↳S1·x')), 'child-s1',
+    'a side chat whose page was read is remembered under its main chat');
+  assert.deepEqual(JSON.parse(storage.get('dsh-annotate-sidechat:parents'))['child-s1'], { parentId: 'main-x', index: 1 },
+    'and kept across reloads, with its number');
+  // Another tab sent a side chat meanwhile: this tab's next write keeps it.
+  const stored = JSON.parse(storage.get('dsh-annotate-sidechat:parents'));
+  storage.set('dsh-annotate-sidechat:parents', JSON.stringify({ ...stored, 'other-tab-child': { parentId: 'other-main', index: 3 } }));
+  storage.set('dsh-annotate-sidechat:tab:main-y/tab-y', JSON.stringify({ id: 'note-y', parentId: 'main-y', index: 2, childId: 'child-y' }));
+  panelOf(undefined, 'main-y', 'tab-y');
+  const merged = JSON.parse(storage.get('dsh-annotate-sidechat:parents'));
+  assert.deepEqual([merged['other-tab-child'], merged['child-y']], [{ parentId: 'other-main', index: 3 }, { parentId: 'main-y', index: 2 }],
+    'a write merges into what another tab wrote');
+  storage.set('dsh-annotate-sidechat:parents', JSON.stringify({ ...merged, 'late-child': { parentId: 'late-main', index: 1 } }));
+  assert.equal(storageListeners.length, 1, 'the session-list order listens for other tabs\' writes');
+  for (const fn of storageListeners) fn({ key: 'dsh-annotate-sidechat:parents' });
+  assert.equal(mainChatOf(list({}), 'late-child', '↳S1·x', match('↳S1·x')), 'late-main', 'and reads them as they land');
+  const titled = list({ m: { title: 'Plan' }, s: { title: '↳S2·Plan' }, o: { title: 'Other' } });
+  assert.equal(mainChatOf(titled, 's', '↳S2·Plan', match('↳S2·Plan')), 'm', 'one never remembered goes under the one chat titled so');
+  assert.equal(mainChatOf(titled, 's', 'sidechat-2-Plan', match('sidechat-2-Plan')), 'm', 'older titles too');
+  const twice = list({ m: { title: 'Plan' }, n: { title: 'Plan' }, s: { title: '↳S2·Plan' } });
+  assert.equal(mainChatOf(twice, 's', '↳S2·Plan', match('↳S2·Plan')), undefined, 'two chats by that title: it stays where it is');
+  const dirs = list({ m: { title: 'Plan', cwd: '/a' }, n: { title: 'Plan', cwd: '/b' }, s: { title: '↳S2·Plan', cwd: '/a' } });
+  assert.equal(mainChatOf(dirs, 's', '↳S2·Plan', match('↳S2·Plan')), 'm',
+    'only a chat in its own directory counts: one elsewhere by that title neither blocks nor takes it');
+
+  // M ← A ← B ← C ← D, each the S1 of the one before; A and C archived.
+  const { sideChatPlace } = plugin.__test;
+  const chain = { M: { title: 'Plan' }, A: { title: '↳S1·Plan' }, B: { title: '↳S2·↳S1·Plan' },
+    C: { title: '↳S1·↳S2·↳S1·Plan' }, D: { title: '↳S3·↳S1·↳S2·↳S1·Plan' } };
+  const lineage = (byId, archived) => ({
+    sessions: { list: { getSnapshot: () => ({ phase: 'ready', ids: Object.keys(byId), byId }) } },
+    get: (name) => (name === 'workspaces' ? { list: { getSnapshot: () => ({ phase: 'ready', archivedSessionIds: archived }) } } : undefined),
+  });
+  const placeOf = (lctx, id) => {
+    const snapshot = lctx.sessions.list.getSnapshot();
+    return sideChatPlace(lctx, snapshot, id, snapshot.byId[id].title, match(snapshot.byId[id].title));
+  };
+  const archivedAC = lineage(chain, ['A', 'C']);
+  assert.deepEqual(placeOf(archivedAC, 'B'), { main: 'M', path: [1, 2] }, 'S1 archived: its side chat moves up under the main chat, in its place');
+  assert.deepEqual(placeOf(archivedAC, 'D'), { main: 'B', path: [1, 3] }, 'each archived level hands its side chats up one');
+  assert.deepEqual(placeOf(lineage(chain, ['A', 'B', 'C']), 'D'), { main: 'M', path: [1, 2, 1, 3] }, 'up as many levels as are archived');
+  assert.deepEqual(placeOf(lineage(chain, []), 'D'), { main: 'C', path: [3] }, 'nothing archived: under its own main chat');
+  assert.equal(placeOf(lineage(chain, ['M', 'A']), 'B').main, undefined, 'an archived main chat leaves its side chats where they are');
+  // child-s1 (remembered as S1 of main-x) is gone from the list; its side chat goes up through what was remembered.
+  const deleted = lineage({ 'main-x': { title: 'x' }, 'child-s1s1': { title: '↳S1·↳S1·x' } }, []);
+  assert.deepEqual(placeOf(deleted, 'child-s1s1'), { main: 'main-x', path: [1, 1] },
+    'a deleted side chat hands its side chats up too, into its own place by its remembered number');
+}
 
 // Records 1.8.0 kept under the tab id alone move to their own chat's tab, the
 // chat each names as its main chat, when that tab is still open.

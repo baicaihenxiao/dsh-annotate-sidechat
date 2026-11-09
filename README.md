@@ -87,6 +87,23 @@ select a reply inside a sent side chat  →  Send to chat: the quote goes to tha
   | `New` | Opens another side chat for the same main chat |
   | `N turns inherited` | Shows or hides the inherited turns |
 
+- **Right under its main chat in the session list.** In the left sidebar each
+  side chat's row is shown just below its main chat's, side chats by number.
+  A side chat of a side chat goes under its own main chat the same way. When a
+  side chat is archived or deleted, its side chats move up a level into its
+  place, and so on up the chain; side chats of an archived main chat stay
+  where the host put them.
+  The list keeps its own order underneath (the host has no ordering seat), so
+  drag-to-reorder and keyboard navigation still follow the host's order. A main
+  chat folded away under "Show more", or in another group, leaves its side
+  chats where the host put them. The host records no fork's source, so the
+  plugin remembers each side chat's main chat and number when it sends one
+  (`localStorage`, `dsh-annotate-sidechat:parents`, shared by every tab). A
+  side chat sent earlier or in another browser goes under the one chat in its
+  own folder whose title its own names, and stays put when two chats there
+  share that title. If that main chat has since been renamed and another chat
+  in the folder now has its old title, the side chat goes under that one: the
+  host gives no creation time or fork source to tell them apart.
 - **Archived or deleted elsewhere** (say, from the session list), a side chat's
   page closes itself.
 - **Survives a reload.** Each page keeps a small record in `localStorage`
@@ -166,6 +183,7 @@ dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.8.1 --dsh-v
 | `ctx.modelDirectories.directoryFor(id)`: `store`, `load`, `select`; `ctx.sessions.retainInfo` | The draft's model and effort menus, and putting the choice on the fork; noticing the main chat's binding arrive or change |
 | `ctx.sidebarRight`, `ctx.sidebarRightTabs`, `sidebar.right.pane.tab(.title)` | The side-chat page type and its tab chip; opening, revealing and closing pages |
 | `conversation.session.header.utilities` | `New side chat` and `Delete all` in the header |
+| `[data-row-key="session:<id>"]` in the left sidebar | Showing each side chat's row under its main chat's |
 | `annotateSidechat.conversation` + `conversation.content` | Rendering the host's conversation in the panel |
 | `ctx.get('workspaces').list`, `ctx.get('uiWorkspace').archiveSession` | Spotting side chats archived elsewhere; archiving on Reset, Delete and a failed send |
 | `ctx.conversation.input.for(scope).setDraft` / `focus` | Writing the quote into a composer |

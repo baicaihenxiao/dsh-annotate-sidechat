@@ -214,6 +214,8 @@ window.__ModuleLoader__.load({
         const parsed = raw === null ? null : JSON.parse(raw);
         if (parsed !== null && typeof parsed === 'object' && typeof parsed.id === 'string' && parsed.id !== '') record = parsed;
       } catch (error) { record = null; }
+      // Side chats sent before their parent was remembered are still on their pages.
+      if (record !== null) rememberParent(record.childId, record.parentId, record.index);
       pageRecords.set(key, record);
       return record;
     }
@@ -224,6 +226,40 @@ window.__ModuleLoader__.load({
       const record = sideChatParams(entry);
       pageRecords.set(key, record);
       try { window.localStorage.setItem(PAGE_PREFIX + key, JSON.stringify(record)); } catch (error) { /* the page just loses its memory */ }
+    }
+
+    /** Each sent side chat's main chat and number, `childId → { parentId, index }`.
+     *  The host's session list gives a parent to subagents only, and a fork's
+     *  log names no source; the number outlives a deleted side chat's title. */
+    const PARENTS_KEY = 'dsh-annotate-sidechat:parents';
+    /** This tab's copy, read again after another tab writes (`installRowOrder`). */
+    let parents;
+
+    function sideChatParents() {
+      if (parents === undefined) {
+        try { parents = JSON.parse(window.localStorage.getItem(PARENTS_KEY)); } catch (error) { parents = null; }
+        if (parents === null || typeof parents !== 'object' || Array.isArray(parents)) parents = {};
+      }
+      return parents;
+    }
+
+    /** What was remembered of one side chat: `{ parentId, index }`, or undefined. */
+    function rememberedSideChat(id) {
+      const known = sideChatParents()[id];
+      return known !== null && typeof known === 'object' && typeof known.parentId === 'string' ? known : undefined;
+    }
+
+    // shortcut: never pruned (about 90 bytes per side chat), since a deleted side chat's entry still links its own side chats upward; prune entries no live side chat reaches if it ever grows large.
+    function rememberParent(childId, parentId, index) {
+      if (typeof childId !== 'string' || typeof parentId !== 'string') return;
+      // Read again first: another tab may have written since, and this write must not drop that.
+      parents = undefined;
+      const known = sideChatParents();
+      const entry = { parentId: parentId, index: typeof index === 'number' && index > 0 ? index : 0 };
+      const was = rememberedSideChat(childId);
+      if (was !== undefined && was.parentId === entry.parentId && was.index === entry.index) return;
+      known[childId] = entry;
+      try { window.localStorage.setItem(PARENTS_KEY, JSON.stringify(known)); } catch (error) { /* kept for this page load only */ }
     }
 
     function forgetPage(key) {
@@ -1006,7 +1042,7 @@ window.__ModuleLoader__.load({
           const list = ctx.sessions.list.getSnapshot();
           for (const id of list.ids) {
             const row = list.byId[id];
-            if (row === undefined || row === null || row.parentId !== parentId) continue;
+            if (row === undefined || row === null || (row.parentId ?? rememberedSideChat(id)?.parentId) !== parentId) continue;
             const match = typeof row.title === 'string' ? TITLE_INDEX.exec(row.title) : null;
             if (match !== null) highest = Math.max(highest, Number(match[1]));
           }
@@ -1014,6 +1050,189 @@ window.__ModuleLoader__.load({
       }
       for (const entry of chats.of(parentId)) if (entry.index > highest) highest = entry.index;
       return highest + 1;
+    }
+
+    // ── side chats right under their main chat in the session list ──────────
+    // The host's session list has no ordering seat, and both its orders (by
+    // update, or the browser-local manual one) are its own. So the rows are only
+    // shown in another order: the list keeps its own, and drag and keyboard
+    // navigation follow that.
+
+    /** One session row of the host's left sidebar. */
+    const SESSION_ROW = '[data-row-key^="session:"]';
+    /** On a sidebar container whose rows are shown in another order. */
+    const ROW_ORDER = 'data-dsh-sidechat-rows';
+
+    /**
+     * A container's children with each side chat moved right under its main
+     * chat, side chats by number; everything else keeps the host's order.
+     * @param items - the container's children, in the host's order.
+     * @param sides - side-chat item → `{ main, path }`: the item it shows under, in `items`, and
+     *   its `sideChatPlace` path, so one moved up a level takes its gone parent's place.
+     */
+    function sideChatOrder(items, sides) {
+      const under = new Map();
+      for (const item of items) {
+        const side = sides.get(item);
+        if (side === undefined) continue;
+        if (!under.has(side.main)) under.set(side.main, []);
+        under.get(side.main).push(item);
+      }
+      const byPath = (a, b) => {
+        const p = sides.get(a).path;
+        const q = sides.get(b).path;
+        for (let index = 0; index < Math.min(p.length, q.length); index += 1) if (p[index] !== q[index]) return p[index] - q[index];
+        return p.length - q.length;
+      };
+      for (const list of under.values()) list.sort(byPath);
+      const placed = new Set();
+      const order = [];
+      const place = (item) => {
+        if (placed.has(item)) return;
+        placed.add(item);
+        order.push(item);
+        for (const child of under.get(item) || []) place(child);
+      };
+      for (const item of items) if (!sides.has(item)) place(item);
+      for (const item of items) place(item);   // a side chat of a side chat cycle, should one ever exist
+      return order;
+    }
+
+    /**
+     * The main chat of a side chat: the one remembered when it was sent, else,
+     * for one sent before that or in another browser, the only chat in its
+     * directory (a fork keeps its main chat's) carrying the title its own title
+     * names (`↳S1·<main chat title>`).
+     * shortcut: a main chat renamed since, with another chat in that directory
+     * now under its old title, takes the side chat to that one (the list has no
+     * creation time or fork source to rule it out); use the host's fork source
+     * once its session list carries one.
+     * @param match - `TITLE_INDEX` matched on `title`.
+     */
+    function mainChatOf(list, id, title, match) {
+      const known = rememberedSideChat(id);
+      if (known !== undefined) return known.parentId;
+      const name = title.slice(match[0].length).replace(/^[·-]/, '');
+      const own = list.byId[id];
+      const cwd = own !== undefined && own !== null ? own.cwd : undefined;
+      let found;
+      for (const other of list.ids) {
+        const row = list.byId[other];
+        if (other === id || row === undefined || row === null || row.title !== name || row.cwd !== cwd) continue;
+        if (found !== undefined) return undefined;   // two chats by that name: no guessing
+        found = other;
+      }
+      return found;
+    }
+
+    /**
+     * Where a side chat shows: under its main chat, or, when that is a side chat
+     * archived or deleted, in that one's place under the chat above it, and so
+     * on up, so each level moves up one as its parent goes.
+     * @param match - `TITLE_INDEX` matched on `title`.
+     * @returns `main`: the nearest chat above that is still there, undefined when
+     *   none is known; `path`: the side-chat numbers from just under `main` down
+     *   to this one.
+     */
+    function sideChatPlace(ctx, list, id, title, match) {
+      let main = mainChatOf(list, id, title, match);
+      let path = [Number(match[1])];
+      const seen = new Set([id]);
+      while (main !== undefined && !seen.has(main) && childGone(ctx, main)) {
+        seen.add(main);
+        const row = list.byId[main];
+        const above = row !== undefined && row !== null && typeof row.title === 'string' ? TITLE_INDEX.exec(row.title) : null;
+        // No side-chat title: a deleted side chat goes on through what was remembered; an archived main chat ends here.
+        const known = above === null ? rememberedSideChat(main) : undefined;
+        path = [above !== null ? Number(above[1]) : (known !== undefined ? known.index : 0), ...path];
+        main = above !== null ? mainChatOf(list, main, row.title, above) : known?.parentId;
+      }
+      return { main: seen.has(main) ? undefined : main, path: path };
+    }
+
+    function clearRowOrder(container) {
+      container.removeAttribute(ROW_ORDER);
+      for (const child of Array.from(container.children)) child.style.removeProperty('order');
+    }
+
+    /**
+     * Show every side-chat row right under its main chat's row, where both are
+     * drawn in the same list; a side chat whose main chat is an archived or
+     * deleted side chat goes up a level (`sideChatPlace`). A main chat folded
+     * away under "show more", or in another group, leaves its side chats where
+     * the host put them.
+     * @param ordered - containers this left reordered; updated in place.
+     */
+    function orderSideChatRows(ctx, ordered) {
+      let list;
+      try { list = ctx.sessions.list.getSnapshot(); } catch (error) { return; }
+      const rows = new Map();
+      for (const row of document.querySelectorAll(SESSION_ROW)) rows.set(row.getAttribute('data-row-key').slice('session:'.length), row);
+      // The container's child holding the row, if it holds that row alone: not a
+      // nested folder's group, whose header row carries a row key too.
+      const itemOf = (container, row) => {
+        let item = row;
+        while (item.parentElement !== container) item = item.parentElement;
+        return item === row || item.querySelectorAll('[data-row-key]').length === 1 ? item : undefined;
+      };
+      const plans = new Map();
+      for (const [id, row] of rows) {
+        const summary = list.byId[id];
+        const match = summary !== undefined && summary !== null && typeof summary.title === 'string' ? TITLE_INDEX.exec(summary.title) : null;
+        if (match === null) continue;
+        const place = sideChatPlace(ctx, list, id, summary.title, match);
+        const mainRow = rows.get(place.main);
+        if (mainRow === undefined) continue;
+        let container = mainRow.parentElement;
+        while (container !== null && !container.contains(row)) container = container.parentElement;
+        if (container === null) continue;
+        const item = itemOf(container, row);
+        const main = itemOf(container, mainRow);
+        if (item === undefined || main === undefined) continue;
+        if (!plans.has(container)) plans.set(container, new Map());
+        plans.get(container).set(item, { main: main, path: place.path });
+      }
+      const next = new Set();
+      for (const [container, sides] of plans) {
+        const items = Array.from(container.children);
+        const order = sideChatOrder(items, sides);
+        if (order.every((item, index) => item === items[index])) continue;
+        order.forEach((item, index) => { item.style.order = String(index); });
+        container.setAttribute(ROW_ORDER, '');
+        next.add(container);
+      }
+      for (const container of ordered) if (!next.has(container)) clearRowOrder(container);
+      ordered.clear();
+      for (const container of next) ordered.add(container);
+    }
+
+    /** Keep side-chat rows under their main chat as the list redraws; the disposer restores the host's order. */
+    function installRowOrder(ctx) {
+      const ordered = new Set();
+      let frame = null;
+      const schedule = () => {
+        if (frame === null) frame = requestAnimationFrame(() => { frame = null; orderSideChatRows(ctx, ordered); });
+      };
+      // Rows come, go and move as child-list changes; the order written here is not one.
+      const observer = new MutationObserver(schedule);
+      observer.observe(document.body, { childList: true, subtree: true });
+      let off = () => {};
+      try { off = ctx.sessions.list.subscribe(schedule); } catch (error) { /* titles reach the rows with their redraw */ }
+      // A side chat sent in another tab: take its parent from what that tab wrote.
+      const onStorage = (event) => {
+        if (event.key !== PARENTS_KEY && event.key !== null) return;
+        parents = undefined;
+        schedule();
+      };
+      window.addEventListener('storage', onStorage);
+      schedule();
+      return () => {
+        observer.disconnect();
+        window.removeEventListener('storage', onStorage);
+        off();
+        if (frame !== null) cancelAnimationFrame(frame);
+        for (const container of ordered) clearRowOrder(container);
+      };
     }
 
     /** The conversation root drawn for one session: the main column's first, else the panel's. */
@@ -1451,6 +1670,7 @@ window.__ModuleLoader__.load({
         const directory = directoryOf(entry.parentId);
         const model = directory === undefined ? entry.model : pendingModel(entry, directory.store.getSnapshot());
         const childId = await createSideChat(ctx, entry.parentId, text, t('sideChat.chip', { index: index }), model, entry.model !== null);
+        rememberParent(childId, entry.parentId, index);
         const boundaryTurn = inheritedTurnBoundary(ctx, entry.parentId, childId);
         // A quote sent here while the chat was being created was appended after
         // the text that went out; it moves on to the new chat's own composer.
@@ -1846,6 +2066,9 @@ window.__ModuleLoader__.load({
 .dsh-note-sendBtn:disabled { opacity: 0.4; cursor: default; }
 .dsh-note-toolNote { margin-left: auto; font-size: 12px; color: var(--dsw-alias-label-secondary); }
 .dsh-note-error { font-size: 12px; color: var(--dsw-alias-state-error-primary); }
+/* A session-list container showing side chats under their main chat: \`order\` needs a flex box. */
+[data-dsh-sidechat-rows] { display: flex; flex-direction: column; }
+[data-dsh-sidechat-rows] > * { flex-shrink: 0; }
 `;
 
     /** Keep one floating card inside the viewport, near the selection. */
@@ -2571,6 +2794,9 @@ window.__ModuleLoader__.load({
         capture: capture,
         sideChatTitle: sideChatTitle,
         nextSideChatIndex: nextSideChatIndex,
+        sideChatOrder: sideChatOrder,
+        mainChatOf: mainChatOf,
+        sideChatPlace: sideChatPlace,
         pendingModel: pendingModel,
         inheritedModel: inheritedModel,
         sideChatParams: sideChatParams,
@@ -2608,6 +2834,8 @@ window.__ModuleLoader__.load({
             if (sweep !== undefined) { clearTimeout(sweep); sweep = undefined; }
           };
         }), 'dsh-annotate-sidechat: archived or deleted side chats');
+
+        ctx.effect(() => installRowOrder(ctx), 'dsh-annotate-sidechat: side chats under their main chat');
 
         // The pending composer's model choice, while the host's model directories are up.
         ctx.effect(() => ctx.inject(['modelDirectories', 'remote', 'remote.session'], (scope) => {
