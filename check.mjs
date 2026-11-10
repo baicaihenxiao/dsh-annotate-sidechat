@@ -961,10 +961,7 @@ assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:tab:main-x/tab-same')
     sessions: { list: { getSnapshot: () => ({ phase: 'ready', ids: Object.keys(byId), byId }) } },
     get: (name) => (name === 'workspaces' ? { list: { getSnapshot: () => ({ phase: 'ready', archivedSessionIds: archived }) } } : undefined),
   });
-  const placeOf = (lctx, id) => {
-    const snapshot = lctx.sessions.list.getSnapshot();
-    return sideChatPlace(lctx, snapshot, id, snapshot.byId[id].title, match(snapshot.byId[id].title));
-  };
+  const placeOf = (lctx, id) => sideChatPlace(lctx, lctx.sessions.list.getSnapshot(), id);
   const archivedAC = lineage(chain, ['A', 'C']);
   assert.deepEqual(placeOf(archivedAC, 'B'), { main: 'M', path: [1, 2] }, 'S1 archived: its side chat moves up under the main chat, in its place');
   assert.deepEqual(placeOf(archivedAC, 'D'), { main: 'B', path: [1, 3] }, 'each archived level hands its side chats up one');
@@ -975,6 +972,97 @@ assert.equal(JSON.parse(storage.get('dsh-annotate-sidechat:tab:main-x/tab-same')
   const deleted = lineage({ 'main-x': { title: 'x' }, 'child-s1s1': { title: '↳S1·↳S1·x' } }, []);
   assert.deepEqual(placeOf(deleted, 'child-s1s1'), { main: 'main-x', path: [1, 1] },
     'a deleted side chat hands its side chats up too, into its own place by its remembered number');
+
+  // Branches rank after the side chats of the same chat. H is a branch whose
+  // rename failed, so the host's `Plan (1)` stays; N is a plain chat named so.
+  const before = JSON.parse(storage.get('dsh-annotate-sidechat:parents'));
+  storage.set('dsh-annotate-sidechat:parents', JSON.stringify({ ...before, H: { parentId: 'M', index: 2, branch: true } }));
+  for (const fn of storageListeners) fn({ key: 'dsh-annotate-sidechat:parents' });
+  const mixed = lineage({ M: { title: 'Plan' }, S: { title: '↳S2·Plan' }, B: { title: '↳B1·Plan' },
+    H: { title: 'Plan (1)' }, N: { title: 'Plan (2)' } }, []);
+  const places = Object.fromEntries(['S', 'B', 'H', 'N'].map((id) => [id, placeOf(mixed, id)]));
+  assert.deepEqual([places.S.main, places.B.main, places.H.main], ['M', 'M', 'M'], 'side chats and branches go under their main chat');
+  assert.equal(places.N, undefined, 'a chat whose title only looks like a host branch is left alone');
+  const { sideChatOrder } = plugin.__test;
+  assert.deepEqual(sideChatOrder(['B', 'H', 'M', 'S'], new Map(['S', 'B', 'H'].map((id) => [id, { main: 'M', path: places[id].path }]))),
+    ['M', 'S', 'B', 'H'], 'side chats first, then branches, each by number');
+}
+
+// ── the host's own branches are named and remembered like side chats ───────
+{
+  const { installBranchNaming, nextBranchIndex } = plugin.__test;
+  let made = 0;
+  let failRename = false;
+  let hostRenameFails = false;
+  const renamed = [];
+  class Sessions {
+    constructor() {
+      this.list = { getSnapshot: () => ({ phase: 'ready', ids: ['P'], byId: { P: { id: 'P', title: 'Plan', cwd: '/r' } } }) };
+    }
+    // As the host does: the child exists and `onCreated` hears of it before the host's own `(1)` rename.
+    async fork(opts) {
+      made += 1;
+      const childId = `branch-${made}`;
+      opts.onCreated?.(childId);
+      if (hostRenameFails) throw new Error('fork child rename failed: refused');
+      return childId;
+    }
+    async using(id, _options, operation) {
+      if (failRename) throw new Error('rename refused');
+      return operation({ binding: { session: { rename: async (title) => { renamed.push([id, title]); return { ok: true }; } } } });
+    }
+  }
+  const service = new Sessions();
+  // Cordis hands a plugin a view whose writes land on a shadow of its own, so
+  // the wrapper has to go on the service behind it to reach every caller.
+  const view = new Proxy(service, {
+    get: (target, prop) => (prop === Symbol.for('cordis.original') ? target : Reflect.get(target, prop)),
+    set: () => true,
+  });
+  const dispose = installBranchNaming({ sessions: view }, (key, params) => (key === 'branch.chip' ? `↳B${params.index}` : key));
+  assert.ok(Object.hasOwn(service, 'fork'), 'the wrapper sits on the service itself');
+  const heard = [];
+  const first = await view.fork({ sessionId: 'P', increaseTitle: true, onCreated: (id) => heard.push(id) });
+  assert.deepEqual(heard, [first], 'the caller\'s own onCreated still hears of the branch');
+  const second = await view.fork({ sessionId: 'P', increaseTitle: true });
+  const sideChat = await view.fork({ sessionId: 'P' });
+  assert.deepEqual(renamed, [[first, '↳B1·Plan'], [second, '↳B2·Plan']],
+    'each branch the host makes is numbered and named after its main chat; a side chat\'s own fork is left alone');
+  const branches = JSON.parse(storage.get('dsh-annotate-sidechat:parents'));
+  assert.deepEqual([branches[first], branches[sideChat]], [{ parentId: 'P', index: 1, branch: true }, undefined], 'and remembered under it');
+  failRename = true;
+  const warn = console.warn;
+  console.warn = () => {};
+  const third = await view.fork({ sessionId: 'P', increaseTitle: true });
+  console.warn = warn;
+  assert.deepEqual([third, JSON.parse(storage.get('dsh-annotate-sidechat:parents'))[third]], ['branch-4', { parentId: 'P', index: 3, branch: true }],
+    'a rename that fails still hands the branch over, remembered');
+  failRename = false;
+  hostRenameFails = true;
+  await assert.rejects(view.fork({ sessionId: 'P', increaseTitle: true }), /fork child rename failed/,
+    'when the host\'s own rename fails, its error still reaches the caller');
+  hostRenameFails = false;
+  assert.deepEqual([renamed.at(-1), JSON.parse(storage.get('dsh-annotate-sidechat:parents'))['branch-5']],
+    [['branch-5', '↳B4·Plan'], { parentId: 'P', index: 4, branch: true }], 'yet the branch it made is remembered and named');
+  dispose();
+  assert.equal(Object.hasOwn(service, 'fork'), false, 'the host\'s own fork is put back');
+
+  // Another wrapper put over this one keeps calling it after this plugin unloads: it must just fork.
+  const again = installBranchNaming({ sessions: view }, (key, params) => `↳B${params.index}`);
+  const ours = service.fork;
+  service.fork = async function (...args) { return ours.apply(this, args); };
+  again();
+  const count = renamed.length;
+  const late = await view.fork({ sessionId: 'P', increaseTitle: true });
+  assert.deepEqual([renamed.length, JSON.parse(storage.get('dsh-annotate-sidechat:parents'))[late]], [count, undefined],
+    'once unloaded, a wrapper left under another one neither names nor remembers');
+  delete service.fork;
+
+  // Branches and side chats made in another browser are numbered from their titles.
+  const elsewhere = { sessions: { list: { getSnapshot: () => ({ ids: ['Q', 'X', 'Y'], byId: {
+    Q: { title: 'Quiz', cwd: '/r' }, X: { title: '↳B4·Quiz', cwd: '/r' }, Y: { title: '↳S3·Quiz', cwd: '/r' } } }) } } };
+  assert.equal(nextBranchIndex(elsewhere, 'Q'), 5, 'a branch this browser never saw made still takes its number');
+  assert.equal(nextSideChatIndex(elsewhere, { of: () => [] }, 'Q'), 4, 'and so does a side chat');
 }
 
 // Records 1.8.0 kept under the tab id alone move to their own chat's tab, the

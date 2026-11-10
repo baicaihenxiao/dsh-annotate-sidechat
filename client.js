@@ -56,6 +56,7 @@ window.__ModuleLoader__.load({
       'header.newSideChat': '新建侧边对话',
       'mainChat.failed': '无法写入主对话的输入框。',
       'sideChat.chip': '↳侧{index}',
+      'branch.chip': '↳分{index}',
       'sideChat.delete': '删除',
       'sideChat.deleteFailed': '删除失败：{message}',
       'sideChat.deleteHint': '归档当前对话并关闭本页',
@@ -110,6 +111,7 @@ window.__ModuleLoader__.load({
       'header.newSideChat': 'New side chat',
       'mainChat.failed': 'The main chat composer could not be reached.',
       'sideChat.chip': '↳S{index}',
+      'branch.chip': '↳B{index}',
       'sideChat.delete': 'Delete',
       'sideChat.deleteFailed': 'Delete failed: {message}',
       'sideChat.deleteHint': 'Archive this chat and close this page',
@@ -180,6 +182,10 @@ window.__ModuleLoader__.load({
     /** The index a side-chat title starts with: `↳S<n>·` / `↳侧<n>·`, or the
      *  older `sidechat-<n>-`, so their numbers stay taken. */
     const TITLE_INDEX = /^(?:↳S|↳侧|sidechat-)(\d+)/;
+    /** The number a branch's title starts with: `↳B<n>·` / `↳分<n>·`. */
+    const BRANCH_INDEX = /^(?:↳B|↳分)(\d+)/;
+    /** Added to a branch's number where it is ranked, so branches follow the side chats of the same chat. */
+    const BRANCH_RANK = 1e6;
     /** Plugin-owned per-page memory. The sidebar persists its layout (ids and
      *  addresses) but not the navigation params a page was opened with, so on
      *  reload a page would forget which side chat it is, what it inherited and
@@ -228,9 +234,10 @@ window.__ModuleLoader__.load({
       try { window.localStorage.setItem(PAGE_PREFIX + key, JSON.stringify(record)); } catch (error) { /* the page just loses its memory */ }
     }
 
-    /** Each sent side chat's main chat and number, `childId → { parentId, index }`.
-     *  The host's session list gives a parent to subagents only, and a fork's
-     *  log names no source; the number outlives a deleted side chat's title. */
+    /** Each sent side chat's and branch's main chat and number,
+     *  `childId → { parentId, index, branch? }`. The host's session list gives a
+     *  parent to subagents only, and a fork's log names no source; the number
+     *  outlives a deleted side chat's title. */
     const PARENTS_KEY = 'dsh-annotate-sidechat:parents';
     /** This tab's copy, read again after another tab writes (`installRowOrder`). */
     let parents;
@@ -243,21 +250,21 @@ window.__ModuleLoader__.load({
       return parents;
     }
 
-    /** What was remembered of one side chat: `{ parentId, index }`, or undefined. */
+    /** What was remembered of one side chat or branch: `{ parentId, index, branch? }`, or undefined. */
     function rememberedSideChat(id) {
       const known = sideChatParents()[id];
       return known !== null && typeof known === 'object' && typeof known.parentId === 'string' ? known : undefined;
     }
 
     // shortcut: never pruned (about 90 bytes per side chat), since a deleted side chat's entry still links its own side chats upward; prune entries no live side chat reaches if it ever grows large.
-    function rememberParent(childId, parentId, index) {
+    function rememberParent(childId, parentId, index, branch) {
       if (typeof childId !== 'string' || typeof parentId !== 'string') return;
       // Read again first: another tab may have written since, and this write must not drop that.
       parents = undefined;
       const known = sideChatParents();
-      const entry = { parentId: parentId, index: typeof index === 'number' && index > 0 ? index : 0 };
+      const entry = { parentId: parentId, index: typeof index === 'number' && index > 0 ? index : 0, ...branch === true ? { branch: true } : {} };
       const was = rememberedSideChat(childId);
-      if (was !== undefined && was.parentId === entry.parentId && was.index === entry.index) return;
+      if (was !== undefined && was.parentId === entry.parentId && was.index === entry.index && was.branch === entry.branch) return;
       known[childId] = entry;
       try { window.localStorage.setItem(PARENTS_KEY, JSON.stringify(known)); } catch (error) { /* kept for this page load only */ }
     }
@@ -1042,14 +1049,107 @@ window.__ModuleLoader__.load({
           const list = ctx.sessions.list.getSnapshot();
           for (const id of list.ids) {
             const row = list.byId[id];
-            if (row === undefined || row === null || (row.parentId ?? rememberedSideChat(id)?.parentId) !== parentId) continue;
-            const match = typeof row.title === 'string' ? TITLE_INDEX.exec(row.title) : null;
-            if (match !== null) highest = Math.max(highest, Number(match[1]));
+            const match = row !== undefined && row !== null && typeof row.title === 'string' ? TITLE_INDEX.exec(row.title) : null;
+            // A side chat this browser never saw sent is found by its title (`mainChatOf`).
+            if (match !== null && (row.parentId ?? mainChatOf(list, id, row.title, match)) === parentId) highest = Math.max(highest, Number(match[1]));
           }
         } catch (error) { /* the list may not be up yet — numbering still counts in-hand pages */ }
       }
       for (const entry of chats.of(parentId)) if (entry.index > highest) highest = entry.index;
       return highest + 1;
+    }
+
+    // ── the host's own branches, named and placed like side chats ───────────
+    // "Branch into a new conversation" under a reply and the session menu's
+    // Fork both go through `ctx.sessions.fork` with `increaseTitle`, which titles
+    // the child `<title> (1)`. That one call is wrapped; the plugin's own side
+    // chats fork without `increaseTitle` and are left to it.
+
+    /** The service object behind this plugin's cordis view: a method put there reaches every caller. */
+    const CORDIS_ORIGINAL = Symbol.for('cordis.original');
+
+    /**
+     * One past the highest number any branch of the parent carries: remembered,
+     * or in the title of one this browser never saw made (`mainChatOf`).
+     */
+    function nextBranchIndex(ctx, parentId) {
+      let highest = 0;
+      for (const known of Object.values(sideChatParents())) {
+        if (known !== null && typeof known === 'object' && known.branch === true && known.parentId === parentId) highest = Math.max(highest, known.index);
+      }
+      try {
+        const list = ctx.sessions.list.getSnapshot();
+        for (const id of list.ids) {
+          const row = list.byId[id];
+          const match = row !== undefined && row !== null && typeof row.title === 'string' ? BRANCH_INDEX.exec(row.title) : null;
+          if (match !== null && (row.parentId ?? mainChatOf(list, id, row.title, match)) === parentId) highest = Math.max(highest, Number(match[1]));
+        }
+      } catch (error) { /* the list may not be up yet: numbering counts what was remembered */ }
+      return highest + 1;
+    }
+
+    /** Number a new branch and remember its main chat. @returns its number. */
+    function rememberBranch(ctx, parentId, childId) {
+      const index = nextBranchIndex(ctx, parentId);
+      rememberParent(childId, parentId, index, true);
+      return index;
+    }
+
+    /** Title a remembered branch `↳B<n>·<main chat title>`; on failure it keeps the title it has. */
+    async function nameBranch(ctx, t, parentId, childId, index) {
+      const info = parentInfo(ctx, parentId);
+      const title = sideChatTitle(t('branch.chip', { index: index }), info.title, info.cwd);
+      try {
+        const renamed = await ctx.sessions.using(childId, { source: 'workspaceOperation' },
+          (reference) => reference.binding.session.rename(title));
+        if (renamed !== undefined && renamed !== null && renamed.ok === false) throw new Error(renamed.error.message);
+      } catch (error) {
+        // The branch keeps the host's own title; it is still remembered, so it is still placed.
+        console.warn('dsh-annotate-sidechat: could not rename branch', childId, error);
+      }
+    }
+
+    /**
+     * Wrap the host's `fork` so each branch it makes is remembered as soon as
+     * it exists (`onCreated`), and named once the host is done with it — also
+     * when the host's own `(1)` rename failed, whose error still reaches the
+     * caller. The branch is opened after that.
+     * @returns the disposer that puts the host's own `fork` back.
+     */
+    function installBranchNaming(ctx, t) {
+      let service;
+      try { service = ctx.sessions[CORDIS_ORIGINAL] ?? ctx.sessions; } catch (error) { return () => {}; }
+      const fork = service !== null && service !== undefined ? service.fork : undefined;
+      if (typeof fork !== 'function') return () => {};
+      const own = Object.prototype.hasOwnProperty.call(service, 'fork');
+      // Off once disposed: a wrapper put over this one since keeps calling it, and must just fork.
+      let active = true;
+      const wrapped = async function (opts) {
+        if (!active || opts === null || typeof opts !== 'object' || opts.increaseTitle !== true || typeof opts.sessionId !== 'string') {
+          return fork.apply(this, arguments);
+        }
+        const parentId = opts.sessionId;
+        let made;
+        const onCreated = (childId) => {
+          if (typeof childId === 'string') {
+            // Inside the host's own fork: nothing thrown here may stop it.
+            try { made = { childId: childId, index: rememberBranch(ctx, parentId, childId) }; } catch (error) { /* left as the host makes it */ }
+          }
+          if (typeof opts.onCreated === 'function') opts.onCreated(childId);
+        };
+        try {
+          return await fork.apply(this, [{ ...opts, onCreated: onCreated }, ...Array.prototype.slice.call(arguments, 1)]);
+        } finally {
+          if (made !== undefined) await nameBranch(ctx, t, parentId, made.childId, made.index);
+        }
+      };
+      service.fork = wrapped;
+      return () => {
+        active = false;
+        if (service.fork !== wrapped) return;   // wrapped again since by someone else: theirs stays
+        if (own) service.fork = fork;
+        else delete service.fork;
+      };
     }
 
     // ── side chats right under their main chat in the session list ──────────
@@ -1099,15 +1199,15 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * The main chat of a side chat: the one remembered when it was sent, else,
-     * for one sent before that or in another browser, the only chat in its
-     * directory (a fork keeps its main chat's) carrying the title its own title
-     * names (`↳S1·<main chat title>`).
+     * The main chat of a side chat or branch: the one remembered when it was
+     * made, else, for one made before that or in another browser, the only chat
+     * in its directory (a fork keeps its main chat's) carrying the title its own
+     * title names (`↳S1·<main chat title>`, `↳B1·…`).
      * shortcut: a main chat renamed since, with another chat in that directory
      * now under its old title, takes the side chat to that one (the list has no
      * creation time or fork source to rule it out); use the host's fork source
      * once its session list carries one.
-     * @param match - `TITLE_INDEX` matched on `title`.
+     * @param match - `TITLE_INDEX` or `BRANCH_INDEX` matched on `title`.
      */
     function mainChatOf(list, id, title, match) {
       const known = rememberedSideChat(id);
@@ -1126,26 +1226,42 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * Where a side chat shows: under its main chat, or, when that is a side chat
-     * archived or deleted, in that one's place under the chat above it, and so
-     * on up, so each level moves up one as its parent goes.
-     * @param match - `TITLE_INDEX` matched on `title`.
-     * @returns `main`: the nearest chat above that is still there, undefined when
-     *   none is known; `path`: the side-chat numbers from just under `main` down
-     *   to this one.
+     * One side chat's or branch's main chat and rank (branches after side
+     * chats): from its title when that still names one, else from what was
+     * remembered (a deleted one, or a branch the host's title still names).
+     * @returns undefined for any other chat.
      */
-    function sideChatPlace(ctx, list, id, title, match) {
-      let main = mainChatOf(list, id, title, match);
-      let path = [Number(match[1])];
+    function childOf(list, id) {
+      const row = list.byId[id];
+      const title = row !== undefined && row !== null && typeof row.title === 'string' ? row.title : '';
+      const side = TITLE_INDEX.exec(title);
+      const match = side ?? BRANCH_INDEX.exec(title);
+      if (match !== null) return { parentId: mainChatOf(list, id, title, match), rank: (side === null ? BRANCH_RANK : 0) + Number(match[1]) };
+      const known = rememberedSideChat(id);
+      return known === undefined ? undefined : { parentId: known.parentId, rank: (known.branch === true ? BRANCH_RANK : 0) + known.index };
+    }
+
+    /**
+     * Where a side chat or branch shows: under its main chat, or, when that is
+     * itself one archived or deleted, in that one's place under the chat above
+     * it, and so on up, so each level moves up one as its parent goes.
+     * @returns undefined for a chat that is neither; else `main`: the nearest
+     *   chat above that is still there, undefined when none is known; `path`:
+     *   the ranks from just under `main` down to this one.
+     */
+    function sideChatPlace(ctx, list, id) {
+      const own = childOf(list, id);
+      if (own === undefined) return undefined;
+      let main = own.parentId;
+      let path = [own.rank];
       const seen = new Set([id]);
       while (main !== undefined && !seen.has(main) && childGone(ctx, main)) {
         seen.add(main);
-        const row = list.byId[main];
-        const above = row !== undefined && row !== null && typeof row.title === 'string' ? TITLE_INDEX.exec(row.title) : null;
-        // No side-chat title: a deleted side chat goes on through what was remembered; an archived main chat ends here.
-        const known = above === null ? rememberedSideChat(main) : undefined;
-        path = [above !== null ? Number(above[1]) : (known !== undefined ? known.index : 0), ...path];
-        main = above !== null ? mainChatOf(list, main, row.title, above) : known?.parentId;
+        const above = childOf(list, main);
+        // An archived main chat has nothing above it: its side chats stay where the host put them.
+        if (above === undefined) return { main: undefined, path: path };
+        path = [above.rank, ...path];
+        main = above.parentId;
       }
       return { main: seen.has(main) ? undefined : main, path: path };
     }
@@ -1177,10 +1293,8 @@ window.__ModuleLoader__.load({
       };
       const plans = new Map();
       for (const [id, row] of rows) {
-        const summary = list.byId[id];
-        const match = summary !== undefined && summary !== null && typeof summary.title === 'string' ? TITLE_INDEX.exec(summary.title) : null;
-        if (match === null) continue;
-        const place = sideChatPlace(ctx, list, id, summary.title, match);
+        const place = sideChatPlace(ctx, list, id);
+        if (place === undefined) continue;
         const mainRow = rows.get(place.main);
         if (mainRow === undefined) continue;
         let container = mainRow.parentElement;
@@ -2797,6 +2911,8 @@ window.__ModuleLoader__.load({
         sideChatOrder: sideChatOrder,
         mainChatOf: mainChatOf,
         sideChatPlace: sideChatPlace,
+        installBranchNaming: installBranchNaming,
+        nextBranchIndex: nextBranchIndex,
         pendingModel: pendingModel,
         inheritedModel: inheritedModel,
         sideChatParams: sideChatParams,
@@ -2836,6 +2952,7 @@ window.__ModuleLoader__.load({
         }), 'dsh-annotate-sidechat: archived or deleted side chats');
 
         ctx.effect(() => installRowOrder(ctx), 'dsh-annotate-sidechat: side chats under their main chat');
+        ctx.effect(() => installBranchNaming(ctx, t), 'dsh-annotate-sidechat: branches named like side chats');
 
         // The pending composer's model choice, while the host's model directories are up.
         ctx.effect(() => ctx.inject(['modelDirectories', 'remote', 'remote.session'], (scope) => {

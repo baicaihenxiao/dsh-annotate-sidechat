@@ -104,6 +104,13 @@ select a reply inside a sent side chat  →  Send to chat: the quote goes to tha
   share that title. If that main chat has since been renamed and another chat
   in the folder now has its old title, the side chat goes under that one: the
   host gives no creation time or fork source to tell them apart.
+- **Branches are named and placed the same way.** A chat made with "Branch
+  into a new conversation" under a reply, or with Fork in the session menu, is
+  titled `↳B<n>·<main chat title>` (`↳分<n>·…` in a Chinese UI) instead of the
+  host's `<title> (1)`, numbered apart from side chats, remembered under its
+  main chat, and shown under it after that chat's side chats. Branches made
+  before this version keep their names and the host's order. If the rename
+  fails, the branch keeps the host's title and is still placed.
 - **Archived or deleted elsewhere** (say, from the session list), a side chat's
   page closes itself.
 - **Survives a reload.** Each page keeps a small record in `localStorage`
@@ -180,6 +187,7 @@ dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.8.1 --dsh-v
 | `[data-conversation-session]`, `[data-sidebar-right-*]` | Which chat a selection is in; sidebar text is quotable only in a sent side chat |
 | `[data-chat-flow-key]`, `[data-chat-flow-kind="user"]`, `ctx.sessions.binding().eventSource` | Where the inherited turns end, for folding |
 | `ctx.sessions.fork` / `retain` / `binding.session` / `list` | Creating, titling, holding and numbering side chats |
+| `ctx.sessions.fork` with `increaseTitle`, wrapped on the service behind `Symbol.for('cordis.original')`; `ctx.sessions.using` | Spotting the host's branches, then naming and remembering them; the host's own `fork` is put back when the plugin unloads |
 | `ctx.modelDirectories.directoryFor(id)`: `store`, `load`, `select`; `ctx.sessions.retainInfo` | The draft's model and effort menus, and putting the choice on the fork; noticing the main chat's binding arrive or change |
 | `ctx.sidebarRight`, `ctx.sidebarRightTabs`, `sidebar.right.pane.tab(.title)` | The side-chat page type and its tab chip; opening, revealing and closing pages |
 | `conversation.session.header.utilities` | `New side chat` and `Delete all` in the header |

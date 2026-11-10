@@ -65,6 +65,7 @@
   | `继承 N 轮` | 显示或隐藏继承的轮次 |
 
 - **在会话列表里紧跟主对话。** 左侧栏里，每个侧边对话的行显示在它的主对话下面，按编号排列。侧边对话的侧边对话同样排在它自己的主对话下面。某个侧边对话被归档或删除时，它的侧边对话上提一级，占住它原来的位置，再往上也依此类推；主对话本身被归档时，它的侧边对话留在宿主放的位置。宿主没有排序接口，列表底下仍是它自己的顺序，所以拖动排序和键盘导航还按宿主的顺序走。主对话被折叠进"显示更多"或在别的分组里时，侧边对话留在宿主放的位置。宿主不记录 fork 的来源，所以插件在发送侧边对话时记下它的主对话和编号（`localStorage`，`dsh-annotate-sidechat:parents`，各标签页共用）。更早发送的或在别的浏览器发送的侧边对话，会排到同一文件夹里标题与它所写主对话标题相同的那个对话下面；那里有两个对话同名时不动。如果那个主对话后来改了名，而同一文件夹里另有对话正好用了它的旧名，侧边对话会排到那个对话下面：宿主不提供创建时间或 fork 来源，没法区分。
+- **分支也按同样的方式命名和排列。** 在回复下方用"Branch into a new conversation"或在会话菜单里用 Fork 建出的对话，标题改为 `↳分<n>·<主对话标题>`（英文界面为 `↳B<n>·…`），不再用宿主的 `<标题> (1)`。分支和侧边对话分开编号，插件会记下它的主对话，并把它排在主对话下面、该主对话的侧边对话之后。这个版本之前建的分支保留原名和宿主的顺序。改名失败时，分支保留宿主的标题，仍会排到主对话下面。
 - **在别处归档或删除**（比如在会话列表里）后，侧边对话的页面会自行关闭。
 - **刷新后仍在。** 每个页面在 `localStorage` 里保存一条小记录（`dsh-annotate-sidechat:tab:<sessionId>/<tabId>`：每个对话的侧栏都从同一个起点给标签页编号，单凭 tab id 并不唯一），页面关闭时删除。
 - 已发送的侧边对话就是宿主自己的对话界面（`conversation.content`），渲染在插件的 `annotateSidechat.conversation` slot 里。
@@ -129,6 +130,7 @@ dsh plugin --profile <profile> allow-version dsh-annotate-sidechat@1.8.1 --dsh-v
 | `[data-conversation-session]`、`[data-sidebar-right-*]` | 选区属于哪个对话；侧栏里只有已发送的侧边对话可引用 |
 | `[data-chat-flow-key]`、`[data-chat-flow-kind="user"]`、`ctx.sessions.binding().eventSource` | 继承的轮次到哪里为止，用于折叠 |
 | `ctx.sessions.fork` / `retain` / `binding.session` / `list` | 创建、命名、持有侧边对话并给它编号 |
+| 带 `increaseTitle` 的 `ctx.sessions.fork`（包在 `Symbol.for('cordis.original')` 背后的服务对象上）；`ctx.sessions.using` | 识别宿主建的分支，再给它命名并记下来；插件卸载时恢复宿主原来的 `fork` |
 | `ctx.modelDirectories.directoryFor(id)`：`store`、`load`、`select`；`ctx.sessions.retainInfo` | 草稿的模型和推理强度菜单，以及把选择设到 fork 上；察觉主对话的会话绑定出现或更换 |
 | `ctx.sidebarRight`、`ctx.sidebarRightTabs`、`sidebar.right.pane.tab(.title)` | 侧边对话页面类型与标签名；打开、显示和关闭页面 |
 | `conversation.session.header.utilities` | 顶栏的 `新建侧边对话` 和 `全部删除` |
