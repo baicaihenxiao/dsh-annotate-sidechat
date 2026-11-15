@@ -2731,7 +2731,8 @@ window.__ModuleLoader__.load({
             placeholder: t('sideChat.pendingPlaceholder'),
             onChange: (event) => props.chats.patch(id, { draft: event.target.value, error: '' }),
             onKeyDown: (event) => {
-              if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); send(); }
+              // Enter that confirms an IME word is not a send; Safari reports it after the composition ends, as keyCode 229.
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing && event.keyCode !== 229) { event.preventDefault(); send(); }
             },
           }),
           h('div', { className: 'dsh-note-composerRow' },

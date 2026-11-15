@@ -316,6 +316,8 @@ assert.match(source, /if \(event\.ctrlKey \|\| event\.metaKey \|\| event\.altKey
   'a chord such as Cmd+C stays the host\'s');
 assert.match(source, /target\.closest\('input, textarea, select'\) !== null \|\| target\.isContentEditable === true\)\) return;/,
   'typing in a field is never taken');
+assert.match(source, /event\.key === 'Enter' && !event\.shiftKey && !event\.nativeEvent\.isComposing && event\.keyCode !== 229\)/,
+  'Enter that confirms an IME word does not send the draft');
 
 // ── a quote from a turn the open side chat was forked before ───────────────
 const { staleQuote } = plugin.__test;
