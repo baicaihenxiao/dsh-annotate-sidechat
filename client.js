@@ -1935,7 +1935,7 @@ window.__ModuleLoader__.load({
     const MENU_KEYS = {
       main: { key: 'm', chip: 'M', aria: 'M' },
       side: { key: 's', chip: 'S', aria: 'S' },
-      chat: { key: 'Enter', chip: '↵', aria: 'Enter' },
+      chat: { key: 's', chip: 'S', aria: 'S' },
       new: { key: 'Enter', chip: '↵', aria: 'Enter' },
       cancel: { key: 'Escape', chip: 'Esc', aria: 'Escape' },
     };

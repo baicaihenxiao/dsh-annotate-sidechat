@@ -52,7 +52,7 @@ select a reply inside a sent side chat  →  Send to chat: the quote goes to tha
 - **Send to side chat** goes to the side chat open in the right sidebar, or opens
   a new one. If that side chat was forked before the quoted turn, the menu asks
   first: send to a new side chat, or cancel.
-- **Send to chat** (`Enter`): text selected in a sent side chat's reply is quoted
+- **Send to chat** (`S`): text selected in a sent side chat's reply is quoted
   into that side chat's composer.
 - **`New side chat`** in the main chat header (or the right sidebar's add
   control) opens a side chat without a quote. `Delete all`, left of it, deletes
